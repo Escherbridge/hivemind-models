@@ -1,0 +1,36 @@
+# Microsoft Phi-2 Configuration
+# Small but capable model from Microsoft
+
+model_id: "microsoft/phi-2"
+
+# Output directory for sharded model
+output_dir: "./output/phi-2-q4"
+
+# Layer grouping for distributed inference
+# Phi-2 has 32 layers total (despite being 2.7B params)
+# Optimized for 4-pool distribution
+layer_groups:
+  - [0, 3]    # Layers 0-3: Client layers
+  - [4, 11]   # Layers 4-11: Pool A (8 layers)
+  - [12, 19]  # Layers 12-19: Pool B (8 layers)
+  - [20, 27]  # Layers 20-27: Pool C (8 layers)
+  - [28, 31]  # Layers 28-31: Pool D + Head (4 layers)
+
+# Quantization settings
+quantize: true
+quant_bits: 4  # INT4 for ~4x compression
+dtype: float16
+
+# Model loading settings
+trust_remote_code: true  # Required for Phi-2
+
+# Metadata
+metadata:
+  name: "Microsoft Phi-2"
+  description: "Microsoft's 2.7B parameter model with strong reasoning"
+  context_length: 2048
+  architecture: "phi"
+  parameters: "2.7B"
+  recommended_for: "reasoning, code, mathematics"
+  license: "mit"
+  notes: "Excellent reasoning capabilities for its size"

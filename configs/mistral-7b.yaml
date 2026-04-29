@@ -1,0 +1,37 @@
+# Mistral 7B Instruct Configuration
+# High-quality 7B model with sliding window attention
+
+model_id: "mistralai/Mistral-7B-Instruct-v0.2"
+
+# Output directory for sharded model
+output_dir: "./output/mistral-7b-q4"
+
+# Layer grouping for distributed inference
+# Mistral 7B has 32 layers total
+# Optimized for 4-pool distribution with sliding window consideration
+layer_groups:
+  - [0, 3]    # Layers 0-3: Client layers
+  - [4, 11]   # Layers 4-11: Pool A (8 layers)
+  - [12, 19]  # Layers 12-19: Pool B (8 layers)
+  - [20, 27]  # Layers 20-27: Pool C (8 layers)
+  - [28, 31]  # Layers 28-31: Pool D + Head (4 layers)
+
+# Quantization settings
+quantize: true
+quant_bits: 4  # INT4 for ~4x compression
+dtype: float16
+
+# Model loading settings
+trust_remote_code: false
+
+# Metadata
+metadata:
+  name: "Mistral 7B Instruct v0.2"
+  description: "Mistral AI's 7B model with sliding window attention"
+  context_length: 32768  # Extended context with sliding window
+  sliding_window: 4096
+  architecture: "mistral"
+  parameters: "7B"
+  recommended_for: "production, long context, instruction following"
+  license: "apache-2.0"
+  notes: "Excellent quality-to-size ratio, supports sliding window attention"

@@ -1,0 +1,34 @@
+# TinyLlama 1.1B Chat v1.0 Configuration
+# Optimized for distributed WebGPU inference
+
+model_id: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+
+# Output directory for sharded model
+output_dir: "./output/tinyllama-1b-q4"
+
+# Layer grouping for distributed inference
+# TinyLlama has 22 layers total
+# Group 0: Client-side (embedding + early layers)
+# Groups 1-3: Distributed across peer pools
+layer_groups:
+  - [0, 3]    # Layers 0-3: Client layers (fast local processing)
+  - [4, 10]   # Layers 4-10: Pool A
+  - [11, 17]  # Layers 11-17: Pool B
+  - [18, 21]  # Layers 18-21: Pool C + Head
+
+# Quantization settings
+quantize: true
+quant_bits: 4  # INT4 quantization for ~4x compression
+dtype: float16
+
+# Model loading settings
+trust_remote_code: false
+
+# Metadata
+metadata:
+  name: "TinyLlama 1.1B Chat"
+  description: "TinyLlama optimized for distributed inference"
+  context_length: 2048
+  architecture: "llama"
+  parameters: "1.1B"
+  recommended_for: "development, testing, demos"

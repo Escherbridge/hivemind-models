@@ -1,0 +1,19 @@
+# BitNet 3B model configuration
+model_id: "1bitLLM/bitnet_b1_58-3B"
+output_dir: "./output/bitnet-3b-q1"
+
+# Layer grouping for distributed inference
+layer_groups:
+  - [0, 3]    # Client layers (privacy boundary)
+  - [4, 11]   # Pool A
+  - [12, 19]  # Pool B
+  - [20, 27]  # Pool C
+  - [28, 31]  # Pool D + Head
+
+# BitLLM quantization settings
+quantize: true
+quant_type: "bitllm_1bit"
+quant_bits: 1
+group_size: 64
+
+dtype: float16

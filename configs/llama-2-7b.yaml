@@ -1,0 +1,36 @@
+# Llama 2 7B Chat Configuration
+# Full-size model for production distributed inference
+
+model_id: "meta-llama/Llama-2-7b-chat-hf"
+
+# Output directory for sharded model
+output_dir: "./output/llama-2-7b-q4"
+
+# Layer grouping for distributed inference
+# Llama 2 7B has 32 layers total
+# Optimized for 4-pool distribution
+layer_groups:
+  - [0, 3]    # Layers 0-3: Client layers (embedding + early attention)
+  - [4, 11]   # Layers 4-11: Pool A (8 layers)
+  - [12, 19]  # Layers 12-19: Pool B (8 layers)
+  - [20, 27]  # Layers 20-27: Pool C (8 layers)
+  - [28, 31]  # Layers 28-31: Pool D + Head (4 layers)
+
+# Quantization settings
+quantize: true
+quant_bits: 4  # INT4 for ~4x compression (~1.75GB total)
+dtype: float16
+
+# Model loading settings
+trust_remote_code: false
+
+# Metadata
+metadata:
+  name: "Llama 2 7B Chat"
+  description: "Meta's Llama 2 7B optimized for distributed inference"
+  context_length: 4096
+  architecture: "llama"
+  parameters: "7B"
+  recommended_for: "production, general chat, instruction following"
+  license: "llama2"
+  notes: "Requires Meta license acceptance"
