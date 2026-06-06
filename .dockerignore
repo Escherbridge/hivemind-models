@@ -1,0 +1,11 @@
+# Everything off by default
+*
+
+# Re-include only what the expert image needs
+!scripts/expert_railway_server.py
+!output/granite-tiny-q4g64/experts_layer_0/
+!output/granite-tiny-q4g64/experts_layer_0/**
+
+# Strip python caches even inside whitelisted paths
+**/__pycache__
+**/*.pyc

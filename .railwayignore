@@ -1,0 +1,36 @@
+# What to exclude from `railway up` uploads.
+# We DO want output/granite-tiny-q4g64/experts_layer_0 (baked into image),
+# so we cannot use .gitignore (it excludes *.safetensors).
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Local virtualenvs (broken WSL symlinks confuse Windows file APIs)
+.venv*/
+.venv_wsl/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Model artifacts we do NOT want shipped
+output/granite-tiny-q4g64/shard_*.safetensors
+output/granite-tiny-q4g64/manifest.json
+output/granite-tiny-q4g64/tokenizer/
+output/granite-tiny-q4g64/experts_layer_0/__pycache__/
+output/tinyllama-1b-q4/
+output/tinyllama-1b-q4g64/
+output/expert_density_sweep*.json
+output/granite_reference.json
+
+# Misc
+.git/
+node_modules/
+*.log

@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN pip install \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.7.1+cpu \
+ && pip install \
+    safetensors==0.4.5 \
+    websockets==13.1 \
+    numpy==1.26.4 \
+    boto3==1.43.24
+
+COPY scripts/expert_railway_server.py /app/expert_railway_server.py
+
+# Where the bucket-fetched experts get cached. Mount a Railway volume here
+# so cold starts after the first one skip the S3 download.
+ENV EXPERTS_DIR=/data/experts_layer_0 \
+    LAYER=0 \
+    PORT=8080
+
+EXPOSE 8080
+
+CMD ["python", "/app/expert_railway_server.py"]
