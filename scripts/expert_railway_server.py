@@ -27,7 +27,6 @@ import asyncio
 import json
 import logging
 import os
-import struct
 import time
 from pathlib import Path
 
@@ -37,59 +36,28 @@ import torch.nn.functional as F
 import websockets
 from safetensors.torch import load_file
 
+# Single source of truth for the binary wire protocol shared with the
+# expert coordinator (scripts/expert_coordinator.py). See _wire.py for the
+# struct layout. Re-export the names this module historically owned so the
+# rest of the file (and any external callers) keep working.
+from scripts._wire import (  # noqa: F401  (re-exports)
+    DTYPE_MAP,
+    DTYPE_REVERSE,
+    _HEADER,
+    pack_tensor,
+    parse_expert_ids,
+    unpack_request,
+)
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger("expert_railway")
-
-
-DTYPE_MAP = {0: torch.float32, 1: torch.float16}
-DTYPE_REVERSE = {v: k for k, v in DTYPE_MAP.items()}
-_HEADER = struct.Struct("<BHIIB")
 
 # COMPUTE_MODE controls whether incoming binary forwards run the real GLU
 # expert (real) or echo the input tensor straight back (echo). Echo mode
 # removes torch + safetensors load + matmul from the path, so we can
 # isolate routing / topology / network from per-call CPU cost.
 COMPUTE_MODE = os.environ.get("COMPUTE_MODE", "real").lower()
-
-
-def parse_expert_ids(spec: str) -> list[int]:
-    """Accept comma-separated ids and/or hyphen ranges, e.g. '0-15,32-63'."""
-    out: list[int] = []
-    for chunk in spec.split(","):
-        chunk = chunk.strip()
-        if not chunk:
-            continue
-        if "-" in chunk:
-            lo, hi = chunk.split("-", 1)
-            out.extend(range(int(lo), int(hi) + 1))
-        else:
-            out.append(int(chunk))
-    return out
-
-
-def pack_tensor(expert_id: int, t: torch.Tensor) -> bytes:
-    n_tokens, hidden = t.shape
-    dtype_code = DTYPE_REVERSE.get(t.dtype, 0)
-    if t.dtype not in DTYPE_REVERSE:
-        t = t.float()
-        dtype_code = 0
-    header = _HEADER.pack(1, expert_id, n_tokens, hidden, dtype_code)
-    return header + t.contiguous().numpy().tobytes()
-
-
-def unpack_request(buf: bytes) -> tuple[int, torch.Tensor] | None:
-    if len(buf) < _HEADER.size or buf[0] != 1:
-        return None
-    op, expert_id, n_tokens, hidden, dtype_code = _HEADER.unpack_from(buf, 0)
-    dtype = DTYPE_MAP.get(dtype_code, torch.float32)
-    np_dtype = np.float32 if dtype == torch.float32 else np.float16
-    payload_size = n_tokens * hidden * np.dtype(np_dtype).itemsize
-    if len(buf) - _HEADER.size != payload_size:
-        return None
-    arr = np.frombuffer(buf, dtype=np_dtype, count=n_tokens * hidden,
-                        offset=_HEADER.size).reshape(n_tokens, hidden).copy()
-    return expert_id, torch.from_numpy(arr)
 
 
 class Expert:
