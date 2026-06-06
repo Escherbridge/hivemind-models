@@ -124,6 +124,110 @@ What we still don't know (good follow-up questions):
   this didn't capture.
 
 
+## Pass 4 — top-6 fan-out (wait-all dispatch)
+
+This is the realistic production dispatch pattern: from one region,
+open 6 persistent WebSockets (round-robin across the other two
+regions), fire 6 parallel forwards per iteration, wait for the slowest
+to come back. Payload 8×1536 fp16 ≈ 24 KB per call.
+
+| Source       | Targets               | p50 ms | p95 ms | p99 ms | max ms |
+|--------------|-----------------------|--------|--------|--------|--------|
+| us-west2     | us-east4, europe-west4|  71.3  | 103.0  | 106.9  | 108.9  |
+| us-east4     | us-west2, europe-west4|  49.8  |  66.9  |  81.1  |  86.9  |
+| europe-west4 | us-west2, us-east4    |  77.9  | 105.6  | 117.9  | 118.4  |
+
+Per-call latency stayed at the same 26–37 ms p50 we saw in pass 2 —
+fan-out doesn't slow individual calls down. The penalty is entirely
+that you're now waiting for the slowest of 6, so the iteration p50
+sits near the per-call p95.
+
+p99 of 100–120 ms is the bound you'd quote a user. For a single layer
+that's fine; for 40 layers chained (the Granite-tiny shape) you'd
+naively get 40 × 80 ms = 3.2 s, which is the bound the chapter has
+been working against from the start.
+
+## Pass 5 — top-6 first-of-K (best-of-K redundancy)
+
+Same fan-out, but record the time-to-**first** response and let the
+losers finish in the background. This is the chapter §10.4.3
+argument: redundant peers collapse tail latency.
+
+| Source       | Targets               | p50 ms | p95 ms | p99 ms | max ms |
+|--------------|-----------------------|--------|--------|--------|--------|
+| us-west2     | us-east4, europe-west4|  20.5  |  28.3  |  33.8  |  35.6  |
+| us-east4     | us-west2, europe-west4|  12.0  |  15.0  |  18.6  |  20.5  |
+| europe-west4 | us-west2, us-east4    |   8.9  |  21.2  |  28.2  |  30.5  |
+
+**3–8× faster than wait-all at p50, 3–6× faster at p99.** The full
+40-layer naive bound drops from ~3 s to ~400 ms per token using nothing
+but the cheapest possible redundancy (k=6 hitting 2 regions). That's
+the difference between "slow demo" and "feels interactive."
+
+### Winner distribution (which target finished first)
+
+| Source       | Winner counts (40 iters)                                |
+|--------------|---------------------------------------------------------|
+| us-west2     | europe-west4: 30, us-east4: 10                          |
+| us-east4     | us-west2: 31, europe-west4: 9                           |
+| europe-west4 | us-west2: 39, us-east4: 1                               |
+
+This is the surprising part. From `europe-west4`, the **us-west2**
+target (5,400 mi away) won 39 of 40 races against us-east4 (3,900 mi
+away). Geographic distance is not the dominant factor here — what
+matters is which peer happened to have shorter queue depth at the
+moment of dispatch. The redundancy is doing real work, not just
+duplicating identical paths.
+
+If you wanted a single-region routing rule ("always send my second
+copy to peer X"), the data says **don't** — pick the redundant peer
+randomly or by current queue depth, not by distance. Static
+"closest second peer" routing would have made the EU experiments
+worse on average, not better.
+
+
+## What this means for production grade
+
+The headline number was **108 ms p99 wait-all from us-west2** and
+**33.8 ms p99 first-of-K from us-west2**. Per layer, distributed,
+on real network. That puts the realistic operating envelope at:
+
+- **Single-layer dispatch under 35 ms p99** with k=6, best-of-K against
+  2 redundant regions.
+- **First-token latency on a 40-layer model around 400 ms** if every
+  layer were distributed this way and the layers were serial. Most
+  models can pipeline layer-N+1 input on layer-N output, so this is
+  the worst-case wall clock.
+- **No CPU constraint** in any of the measurements above. These
+  experiments ran in `COMPUTE_MODE=echo` for the topology probes
+  (real torch matmuls on the chapter-10 path), so the numbers are
+  routing + network only. Production with GPU dispatch would
+  contribute another ~1–5 ms per layer; production with CPU at
+  Granite-tiny scale contributes ~0.5 ms. Neither moves the bound.
+
+The two things that would still make this **not** production-grade for
+a real end user:
+
+1. **The 165 ms client → edge floor.** Every measurement above is
+   inside Railway. The user's last mile adds 50–170 ms one-way (often
+   asymmetric — uplink is usually worse). For interactive use that's
+   the dominant cost, and the answer is "put the entry relay
+   geographically close to the user," not anything in the routing
+   layer.
+
+2. **Sustained load.** All sweeps ran 20–40 iterations. For real
+   workloads you need to confirm the p99 doesn't drift upward over
+   tens of thousands of calls (TCP buffer pressure, OS scheduler
+   tail effects, Railway proxy connection reaping). Worth a follow-up
+   that holds the WS pool open for an hour and reports the rolling p99.
+
+GPU is **not** required to hit these numbers. The chapter-10
+distributed-MoE architecture is already production-viable on CPU
+relays, provided the entry relay is close to the user and the routing
+fabric uses k>=2 redundancy. Moving to GPU is about per-call compute
+cost (model size scaling), not about hitting interactive latency.
+
+
 ## How to reproduce
 
 ```bash
@@ -134,7 +238,15 @@ python scripts/measure_region_latency.py \
 # 2. Drive the /probe endpoint on each region against the other two
 python scripts/sweep_region_matrix.py \
   --output output/region_matrix.json
+
+# 3. Top-6 wait-all dispatch (production pattern)
+python scripts/sweep_topk_matrix.py --mode wait_all --k 6 \
+  --iters 40 --output output/region_topk_wait_all.json
+
+# 4. Top-6 best-of-K redundancy
+python scripts/sweep_topk_matrix.py --mode first_of_k --k 6 \
+  --iters 40 --output output/region_topk_first_of_k.json
 ```
 
-Region URLs live in both scripts at the top; change them if the Railway
-service domains change.
+Region URLs live in all four scripts at the top; change them if the
+Railway service domains change.

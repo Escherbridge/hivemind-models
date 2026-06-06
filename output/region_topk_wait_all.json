@@ -1,0 +1,204 @@
+{
+  "measured_at": 1780767878.8876748,
+  "config": {
+    "mode": "wait_all",
+    "k": 6,
+    "iters": 40,
+    "n_tokens": 8,
+    "warmup": 3,
+    "targets_from_source": "all_others",
+    "timeout_s": 300,
+    "output": "output/region_topk_wait_all.json"
+  },
+  "results": [
+    {
+      "source": "us-west2",
+      "targets": [
+        "us-east4",
+        "europe-west4"
+      ],
+      "mode": "wait_all",
+      "k": 6,
+      "n_tokens": 8,
+      "data": {
+        "http_status": 200,
+        "client_elapsed_s": 5.097503185272217,
+        "source_region": "us-west2",
+        "result": {
+          "targets": [
+            "wss://expert-us-east-production.up.railway.app",
+            "wss://expert-eu-production.up.railway.app"
+          ],
+          "k": 6,
+          "mode": "wait_all",
+          "n_tokens": 8,
+          "open_ms_summary": {
+            "n": 6,
+            "min_ms": 38.154132664203644,
+            "p50_ms": 61.5261634811759,
+            "p95_ms": 94.98800965957344,
+            "p99_ms": 97.41564593277872,
+            "max_ms": 98.02255500108004,
+            "mean_ms": 66.82669448976715,
+            "stdev_ms": 21.611860314936575
+          },
+          "target_regions": [
+            "us-east4",
+            "europe-west4",
+            "us-east4",
+            "europe-west4",
+            "us-east4",
+            "europe-west4"
+          ],
+          "iter_latency": {
+            "n": 40,
+            "min_ms": 58.7382772937417,
+            "p50_ms": 71.27858465537429,
+            "p95_ms": 102.97463377937675,
+            "p99_ms": 106.89536360092461,
+            "max_ms": 108.9343223720789,
+            "mean_ms": 76.65547195356339,
+            "stdev_ms": 15.298335626592456
+          },
+          "per_call_latency": {
+            "n": 240,
+            "min_ms": 7.140860892832279,
+            "p50_ms": 37.450846284627914,
+            "p95_ms": 80.1684012636542,
+            "p99_ms": 97.17781780287623,
+            "max_ms": 103.8202503696084,
+            "mean_ms": 39.61782095332941,
+            "stdev_ms": 21.33324392585746
+          }
+        },
+        "measured_at": 1780767871.6560504
+      }
+    },
+    {
+      "source": "us-east4",
+      "targets": [
+        "us-west2",
+        "europe-west4"
+      ],
+      "mode": "wait_all",
+      "k": 6,
+      "n_tokens": 8,
+      "data": {
+        "http_status": 200,
+        "client_elapsed_s": 4.104355096817017,
+        "source_region": "us-east4",
+        "result": {
+          "targets": [
+            "wss://expert-us-west-production.up.railway.app",
+            "wss://expert-eu-production.up.railway.app"
+          ],
+          "k": 6,
+          "mode": "wait_all",
+          "n_tokens": 8,
+          "open_ms_summary": {
+            "n": 6,
+            "min_ms": 20.330321975052357,
+            "p50_ms": 72.55692651960999,
+            "p95_ms": 153.3063985989429,
+            "p99_ms": 166.40043501975015,
+            "max_ms": 169.67394412495196,
+            "mean_ms": 80.6410430232063,
+            "stdev_ms": 52.59723348697655
+          },
+          "target_regions": [
+            "us-west2",
+            "europe-west4",
+            "us-west2",
+            "europe-west4",
+            "us-west2",
+            "europe-west4"
+          ],
+          "iter_latency": {
+            "n": 40,
+            "min_ms": 31.395738944411278,
+            "p50_ms": 49.785169889219105,
+            "p95_ms": 66.896917426493,
+            "p99_ms": 81.10216435743494,
+            "max_ms": 86.88208600506186,
+            "mean_ms": 48.23870857944712,
+            "stdev_ms": 13.862980288520738
+          },
+          "per_call_latency": {
+            "n": 240,
+            "min_ms": 7.146845804527402,
+            "p50_ms": 28.36123399902135,
+            "p95_ms": 55.746175360400215,
+            "p99_ms": 63.39045466156676,
+            "max_ms": 76.93113083951175,
+            "mean_ms": 27.46909793446927,
+            "stdev_ms": 14.405432615026477
+          }
+        },
+        "measured_at": 1780767875.7711446
+      }
+    },
+    {
+      "source": "europe-west4",
+      "targets": [
+        "us-west2",
+        "us-east4"
+      ],
+      "mode": "wait_all",
+      "k": 6,
+      "n_tokens": 8,
+      "data": {
+        "http_status": 200,
+        "client_elapsed_s": 5.082824468612671,
+        "source_region": "europe-west4",
+        "result": {
+          "targets": [
+            "wss://expert-us-west-production.up.railway.app",
+            "wss://expert-us-east-production.up.railway.app"
+          ],
+          "k": 6,
+          "mode": "wait_all",
+          "n_tokens": 8,
+          "open_ms_summary": {
+            "n": 6,
+            "min_ms": 16.310573904775083,
+            "p50_ms": 42.3417785204947,
+            "p95_ms": 78.58987231156789,
+            "p99_ms": 82.08925851504318,
+            "max_ms": 82.96410506591201,
+            "mean_ms": 47.75923835889747,
+            "stdev_ms": 23.296655606369452
+          },
+          "target_regions": [
+            "us-west2",
+            "us-east4",
+            "us-west2",
+            "us-east4",
+            "us-west2",
+            "us-east4"
+          ],
+          "iter_latency": {
+            "n": 40,
+            "min_ms": 58.62487794365734,
+            "p50_ms": 77.90155051043257,
+            "p95_ms": 105.62009034329091,
+            "p99_ms": 117.9447366646491,
+            "max_ms": 118.44027298502624,
+            "mean_ms": 80.36883822933305,
+            "stdev_ms": 13.840027540184387
+          },
+          "per_call_latency": {
+            "n": 240,
+            "min_ms": 7.134623010642827,
+            "p50_ms": 26.25130646629259,
+            "p95_ms": 82.38347604055889,
+            "p99_ms": 98.32658575964155,
+            "max_ms": 113.45053801778704,
+            "mean_ms": 33.256292069078576,
+            "stdev_ms": 25.32388305143441
+          }
+        },
+        "measured_at": 1780767880.844888
+      }
+    }
+  ]
+}
