@@ -46,6 +46,12 @@ DTYPE_MAP = {0: torch.float32, 1: torch.float16}
 DTYPE_REVERSE = {v: k for k, v in DTYPE_MAP.items()}
 _HEADER = struct.Struct("<BHIIB")
 
+# COMPUTE_MODE controls whether incoming binary forwards run the real GLU
+# expert (real) or echo the input tensor straight back (echo). Echo mode
+# removes torch + safetensors load + matmul from the path, so we can
+# isolate routing / topology / network from per-call CPU cost.
+COMPUTE_MODE = os.environ.get("COMPUTE_MODE", "real").lower()
+
 
 def parse_expert_ids(spec: str) -> list[int]:
     """Accept comma-separated ids and/or hyphen ranges, e.g. '0-15,32-63'."""
@@ -172,6 +178,13 @@ class ExpertHost:
             await ws.send(bytes([0xFF]) + b"bad binary frame")
             return
         expert_id, x = parsed
+        # COMPUTE_MODE=echo bypasses torch entirely: just echo the input
+        # tensor as if it had been forwarded. Lets us isolate routing /
+        # topology / network from per-call compute cost.
+        if COMPUTE_MODE == "echo":
+            self.forward_count += 1
+            await ws.send(pack_tensor(expert_id, x))
+            return
         if expert_id not in self.experts:
             await ws.send(bytes([0xFF])
                           + f"expert {expert_id} not on this region {self.region}".encode())
@@ -250,9 +263,33 @@ def _ensure_s3_experts(experts_dir: Path, ids: list[int]) -> None:
                     for e in missing) / 1e6 / max(elapsed, 0.001))
 
 
-def load_experts(experts_dir: Path, ids: list[int], layer: int) -> list[Expert]:
+class StubExpert:
+    """Cheap stand-in for an Expert when COMPUTE_MODE=echo. Skips weight
+    download + safetensors load + matmul entirely."""
+    def __init__(self, expert_id: int, layer: int) -> None:
+        self.expert_id = expert_id
+        self.layer = layer
+        self.hidden_size = 1536      # Granite-tiny default
+        self.intermediate_size = 512
+
+    def info(self) -> dict:
+        return {
+            "expert_id": self.expert_id,
+            "layer": self.layer,
+            "hidden": self.hidden_size,
+            "intermediate": self.intermediate_size,
+        }
+
+
+def load_experts(experts_dir: Path, ids: list[int], layer: int):
+    if COMPUTE_MODE == "echo":
+        logger.info("COMPUTE_MODE=echo: skipping S3 download and safetensors load")
+        out = [StubExpert(eid, layer) for eid in ids]
+        for e in out:
+            logger.info("stub expert %d ready", e.expert_id)
+        return out
     _ensure_s3_experts(experts_dir, ids)
-    out: list[Expert] = []
+    out = []
     for eid in ids:
         p = experts_dir / f"expert_{eid:02d}.safetensors"
         if not p.exists():
@@ -314,6 +351,114 @@ def _summarize(values):
         "mean_ms": st.mean(values),
         "stdev_ms": st.stdev(values) if len(values) > 1 else 0.0,
     }
+
+
+async def _probe_topk(targets: list[str], iters: int, n_tokens: int,
+                       k: int, mode: str, warmup: int):
+    """Fan-out probe: open K persistent WS connections (round-robin over
+    `targets`), then per iteration fire K parallel forwards and either
+    wait for all (`mode=wait_all`) or take the first (`mode=first_of_k`).
+
+    Returns wall-clock latency per iteration plus per-call latency
+    distribution.
+    """
+    import numpy as np
+    hidden = 1536
+    out: dict = {
+        "targets": targets,
+        "k": k,
+        "mode": mode,
+        "n_tokens": n_tokens,
+    }
+    if not targets:
+        out["error"] = "no targets"
+        return out
+
+    # Open K connections, distributed round-robin over the target endpoints.
+    conns: list = []
+    target_regions: list[str] = []
+    open_ms: list[float] = []
+    for i in range(k):
+        url = targets[i % len(targets)]
+        t0 = time.perf_counter()
+        try:
+            ws = await websockets.connect(
+                url, max_size=2**24,
+                ping_interval=20, ping_timeout=20, open_timeout=15,
+            )
+            open_ms.append((time.perf_counter() - t0) * 1000)
+            hello = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+            target_regions.append(hello.get("region") or "?")
+            # discover one expert id available on this peer
+            available = sorted(e["expert_id"] for e in hello.get("experts", []))
+            ws._target_expert = available[0] if available else 0
+            ws._target_url = url
+            conns.append(ws)
+        except Exception as e:
+            out["error"] = f"connect[{i}] {url}: {e}"
+            for c in conns:
+                await c.close()
+            return out
+    out["open_ms_summary"] = _summarize(open_ms)
+    out["target_regions"] = target_regions
+
+    async def _one_forward(ws):
+        x = np.random.randn(n_tokens, hidden).astype(np.float16)
+        frame = _HEADER.pack(1, ws._target_expert, n_tokens, hidden, 1) + x.tobytes()
+        t0 = time.perf_counter()
+        await ws.send(frame)
+        resp = await ws.recv()
+        elapsed = (time.perf_counter() - t0) * 1000
+        if not isinstance(resp, (bytes, bytearray)) or resp[0] != 1:
+            raise RuntimeError(f"server reject: {resp[:80]}")
+        return elapsed, ws._target_url
+
+    try:
+        # Warmup (serial) so each WS has warm TCP buffers
+        for _ in range(warmup):
+            await asyncio.gather(*(_one_forward(c) for c in conns))
+
+        iter_latency: list[float] = []
+        per_call_latency: list[float] = []
+        winning_target_counts: dict = {}
+
+        for _ in range(iters):
+            t_start = time.perf_counter()
+            tasks = [asyncio.create_task(_one_forward(c)) for c in conns]
+            if mode == "first_of_k":
+                done, pending = await asyncio.wait(
+                    tasks, return_when=asyncio.FIRST_COMPLETED)
+                # Drain the first winner; the others keep running so we
+                # don't waste their already-in-flight work on the server.
+                # We record only the winner for the iteration latency.
+                winner = next(iter(done))
+                _, url = winner.result()
+                winning_target_counts[url] = winning_target_counts.get(url, 0) + 1
+                iter_latency.append((time.perf_counter() - t_start) * 1000)
+                # Await pending in background so server-side dispatch
+                # continues to be measured (we still record their times)
+                for fut in pending:
+                    try:
+                        per_call_latency.append((await fut)[0])
+                    except Exception:
+                        pass
+                per_call_latency.append(winner.result()[0])
+            else:  # wait_all
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                iter_latency.append((time.perf_counter() - t_start) * 1000)
+                for r in results:
+                    if isinstance(r, tuple):
+                        per_call_latency.append(r[0])
+            await asyncio.sleep(0.02)
+
+        out["iter_latency"] = _summarize(iter_latency)
+        out["per_call_latency"] = _summarize(per_call_latency)
+        if mode == "first_of_k":
+            out["winning_target_counts"] = winning_target_counts
+    finally:
+        for c in conns:
+            await c.close()
+    return out
 
 
 async def _probe_target(target_url: str, ping_iters: int,
@@ -405,6 +550,28 @@ async def run(port: int, experts_dir: Path, expert_ids: list[int],
             })
         if clean_path == "/info":
             return _json_response(200, host_state.info_dict())
+        if clean_path == "/probe_topk":
+            from urllib.parse import parse_qs
+            params = parse_qs(query_str)
+            targets = [t for t in (params.get("targets") or [""])[0].split(",") if t]
+            if not targets:
+                return _json_response(400, {"error": "missing targets query param"})
+            iters = int((params.get("iters") or ["20"])[0])
+            n_tokens = int((params.get("n_tokens") or ["8"])[0])
+            k = int((params.get("k") or ["6"])[0])
+            mode = (params.get("mode") or ["wait_all"])[0]
+            warmup = int((params.get("warmup") or ["3"])[0])
+            if mode not in ("wait_all", "first_of_k"):
+                return _json_response(400, {"error": f"bad mode {mode}"})
+            try:
+                result = await _probe_topk(targets, iters, n_tokens, k, mode, warmup)
+            except Exception as e:
+                return _json_response(500, {"error": f"probe_topk failed: {e}"})
+            return _json_response(200, {
+                "source_region": host_state.region,
+                "result": result,
+                "measured_at": time.time(),
+            })
         if clean_path == "/probe":
             from urllib.parse import parse_qs
             params = parse_qs(query_str)
