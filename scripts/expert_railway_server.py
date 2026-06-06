@@ -228,15 +228,26 @@ def _ensure_s3_experts(experts_dir: Path, ids: list[int]) -> None:
                       retries={"max_attempts": 5}),
     )
 
-    t0 = time.time()
-    for eid in missing:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _fetch_one(eid: int):
         fname = f"expert_{eid:02d}.safetensors"
         dest = experts_dir / fname
         tmp = dest.with_suffix(".safetensors.partial")
         s3.download_file(bucket, prefix + fname, str(tmp))
         tmp.rename(dest)
+        return eid
+
+    t0 = time.time()
+    # 8 parallel TCP streams to amortize round-trip cost; boto3 client is
+    # thread-safe for separate operations.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(_fetch_one, missing))
     elapsed = time.time() - t0
-    logger.info("downloaded %d experts in %.1fs", len(missing), elapsed)
+    logger.info("downloaded %d experts in %.1fs (%.1f MB/s)",
+                len(missing), elapsed,
+                sum((experts_dir / f"expert_{e:02d}.safetensors").stat().st_size
+                    for e in missing) / 1e6 / max(elapsed, 0.001))
 
 
 def load_experts(experts_dir: Path, ids: list[int], layer: int) -> list[Expert]:
