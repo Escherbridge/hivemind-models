@@ -280,6 +280,103 @@ def _json_response(status: int, payload: dict):
     )
 
 
+# ---- Region-to-region probe ------------------------------------------------
+#
+# When run inside a Railway region, this lets a client say:
+#   GET /probe?target=wss://expert-eu-production.up.railway.app
+#            &ping_iters=50&forward_iters=20&tokens=1,8,32
+# and the host opens a WS to that target, runs the sweep server-side, and
+# returns the JSON. Used to measure region-to-region latency on the Railway
+# backbone (independent of the home-uplink path to the client).
+
+def _percentile(values, p):
+    if not values:
+        return None
+    values = sorted(values)
+    k = (len(values) - 1) * p
+    f = int(k)
+    if f + 1 < len(values):
+        return values[f] + (values[f + 1] - values[f]) * (k - f)
+    return values[f]
+
+
+def _summarize(values):
+    import statistics as st
+    if not values:
+        return {"n": 0}
+    return {
+        "n": len(values),
+        "min_ms": min(values),
+        "p50_ms": _percentile(values, 0.50),
+        "p95_ms": _percentile(values, 0.95),
+        "p99_ms": _percentile(values, 0.99),
+        "max_ms": max(values),
+        "mean_ms": st.mean(values),
+        "stdev_ms": st.stdev(values) if len(values) > 1 else 0.0,
+    }
+
+
+async def _probe_target(target_url: str, ping_iters: int,
+                         forward_iters: int, token_batches: list[int],
+                         warmup: int):
+    import numpy as np
+    hidden = 1536
+    out: dict = {"target": target_url}
+    t_open0 = time.perf_counter()
+    try:
+        ws = await websockets.connect(
+            target_url, max_size=2**24,
+            ping_interval=20, ping_timeout=20, open_timeout=15,
+        )
+    except Exception as e:
+        out["error"] = f"connect: {e}"
+        return out
+    out["open_ms"] = (time.perf_counter() - t_open0) * 1000
+    try:
+        hello = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+        out["target_region"] = hello.get("region")
+        available = sorted(e["expert_id"] for e in hello.get("experts", []))
+        target_expert = available[0] if available else 0
+
+        # Warmup
+        for i in range(warmup):
+            await ws.send(json.dumps({"type": "ping", "nonce": f"w{i}"}))
+            await ws.recv()
+
+        # JSON ping
+        pings = []
+        for i in range(ping_iters):
+            t0 = time.perf_counter()
+            await ws.send(json.dumps({"type": "ping", "nonce": f"p{i}"}))
+            await ws.recv()
+            pings.append((time.perf_counter() - t0) * 1000)
+            await asyncio.sleep(0.02)
+        out["json_ping"] = _summarize(pings)
+
+        # Binary forward at several token batch sizes
+        forward = {}
+        for n_tokens in token_batches:
+            samples = []
+            for _ in range(forward_iters):
+                x = np.random.randn(n_tokens, hidden).astype(np.float16)
+                frame = _HEADER.pack(1, target_expert, n_tokens, hidden, 1) + x.tobytes()
+                t0 = time.perf_counter()
+                await ws.send(frame)
+                resp = await ws.recv()
+                if not isinstance(resp, (bytes, bytearray)) or resp[0] != 1:
+                    samples = []
+                    forward[f"tokens_{n_tokens}"] = {"error": f"server reject: {resp[:80]}"}
+                    break
+                samples.append((time.perf_counter() - t0) * 1000)
+                await asyncio.sleep(0.02)
+            if samples:
+                forward[f"tokens_{n_tokens}"] = _summarize(samples)
+        out["forward"] = forward
+    finally:
+        await ws.close()
+    return out
+
+
 async def run(port: int, experts_dir: Path, expert_ids: list[int],
               layer: int, region: str) -> None:
     experts = load_experts(experts_dir, expert_ids, layer)
@@ -294,7 +391,10 @@ async def run(port: int, experts_dir: Path, expert_ids: list[int],
         upgrade_hdr = request_headers.get("Upgrade", "") or ""
         if "websocket" in upgrade_hdr.lower():
             return None  # proceed with WS handshake
-        clean_path = path.split("?", 1)[0]
+        if "?" in path:
+            clean_path, _, query_str = path.partition("?")
+        else:
+            clean_path, query_str = path, ""
         if clean_path in ("/", "/health", "/ready"):
             return _json_response(200, {
                 "status": "ok",
@@ -305,6 +405,27 @@ async def run(port: int, experts_dir: Path, expert_ids: list[int],
             })
         if clean_path == "/info":
             return _json_response(200, host_state.info_dict())
+        if clean_path == "/probe":
+            from urllib.parse import parse_qs
+            params = parse_qs(query_str)
+            target = (params.get("target") or [""])[0]
+            if not target:
+                return _json_response(400, {"error": "missing target query param"})
+            ping_iters = int((params.get("ping_iters") or ["50"])[0])
+            forward_iters = int((params.get("forward_iters") or ["20"])[0])
+            warmup = int((params.get("warmup") or ["5"])[0])
+            tokens_str = (params.get("tokens") or ["1,8,32"])[0]
+            token_batches = [int(x) for x in tokens_str.split(",") if x.strip()]
+            try:
+                result = await _probe_target(target, ping_iters, forward_iters,
+                                              token_batches, warmup)
+            except Exception as e:
+                return _json_response(500, {"error": f"probe failed: {e}"})
+            return _json_response(200, {
+                "source_region": host_state.region,
+                "result": result,
+                "measured_at": time.time(),
+            })
         return _json_response(404, {"error": "not found"})
 
     logger.info("expert host: region=%s layer=%d experts=%s port=%d",
