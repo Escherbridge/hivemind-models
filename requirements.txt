@@ -19,6 +19,10 @@ rich>=13.0.0
 # Progress tracking
 tqdm>=4.65.0
 
+# Shard server
+fastapi>=0.104.0
+uvicorn>=0.24.0
+
 # Development
 black>=23.0.0
 mypy>=1.0.0

@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+.venv_*/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment / Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+
+# Model binaries (large)
+*.safetensors
+*.gguf
+*.bin
+*.onnx
+*.pt
+*.pth
+
+# Sharded model outputs (binaries; data files like *.json/*.md tracked explicitly)
+output/*/shard_*
+output/*/tokenizer/
+output/*/manifest.json
+
+# Logs
+*.log
+logs/
+
+# Temporary
+*.tmp
+*.bak
+
+# Modal
+.modal/

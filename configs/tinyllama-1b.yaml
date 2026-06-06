@@ -4,7 +4,7 @@
 model_id: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 # Output directory for sharded model
-output_dir: "./output/tinyllama-1b-q4"
+output_dir: "./output/tinyllama-1b-q4g64"
 
 # Layer grouping for distributed inference
 # TinyLlama has 22 layers total
@@ -18,7 +18,8 @@ layer_groups:
 
 # Quantization settings
 quantize: true
-quant_bits: 4  # INT4 quantization for ~4x compression
+quant_bits: 4         # INT4 quantization for ~4x compression
+quant_group_size: 64  # Group-wise INT4 (industry standard). null = per-tensor (very lossy for INT4).
 dtype: float16
 
 # Model loading settings

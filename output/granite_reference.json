@@ -1,0 +1,35 @@
+{
+  "gguf": "C:\\Users\\atooz\\.lmstudio\\models\\lmstudio-community\\granite-4.0-h-tiny-GGUF\\granite-4.0-h-tiny-Q4_K_M.gguf",
+  "prompt": "The capital of France is",
+  "prompt_token_ids": [
+    791,
+    6864,
+    315,
+    9822,
+    374
+  ],
+  "top_k": 5,
+  "top_k_tokens": [
+    {
+      "token": " Paris",
+      "logprob": -0.10988326370716095
+    },
+    {
+      "token": " a",
+      "logprob": -4.371461868286133
+    },
+    {
+      "token": " not",
+      "logprob": -4.671857833862305
+    },
+    {
+      "token": " paris",
+      "logprob": -5.020983695983887
+    },
+    {
+      "token": " the",
+      "logprob": -5.735980033874512
+    }
+  ],
+  "greedy_completion_text": " Paris. Paris is known for its historical"
+}

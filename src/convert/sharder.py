@@ -36,6 +36,7 @@ class ShardConfig:
     layer_groups: list[tuple[int, int]]
     quantize: bool = False
     quant_bits: int = 4
+    quant_group_size: int | None = None  # None = per-tensor (lossy for INT4); 64 recommended for INT4
     dtype: str = "float16"
     trust_remote_code: bool = False
 
@@ -54,6 +55,7 @@ class ShardConfig:
             layer_groups=layer_groups,
             quantize=data.get("quantize", False),
             quant_bits=data.get("quant_bits", 4),
+            quant_group_size=data.get("quant_group_size", None),
             dtype=data.get("dtype", "float16"),
             trust_remote_code=data.get("trust_remote_code", False),
         )
@@ -98,6 +100,9 @@ class ModelSharder:
         "gpt2": "transformer.h.{layer_idx}",
         "gpt_neo": "transformer.h.{layer_idx}",
         "opt": "model.decoder.layers.{layer_idx}",
+        "granitemoehybrid": "model.layers.{layer_idx}",
+        "granitemoe": "model.layers.{layer_idx}",
+        "granite": "model.layers.{layer_idx}",
     }
 
     EMBED_KEYS = {
@@ -106,6 +111,9 @@ class ModelSharder:
         "phi": ["model.embed_tokens"],
         "gpt2": ["transformer.wte", "transformer.wpe"],
         "opt": ["model.decoder.embed_tokens", "model.decoder.embed_positions"],
+        "granitemoehybrid": ["model.embed_tokens"],
+        "granitemoe": ["model.embed_tokens"],
+        "granite": ["model.embed_tokens"],
     }
 
     HEAD_KEYS = {
@@ -114,6 +122,9 @@ class ModelSharder:
         "phi": ["lm_head", "model.norm"],
         "gpt2": ["lm_head", "transformer.ln_f"],
         "opt": ["lm_head", "model.decoder.final_layer_norm"],
+        "granitemoehybrid": ["model.norm", "model.embed_tokens"],
+        "granitemoe": ["model.norm", "model.embed_tokens"],
+        "granite": ["model.norm", "model.embed_tokens"],
     }
 
     def __init__(self, config: ShardConfig):
@@ -137,6 +148,8 @@ class ModelSharder:
             return "llama"
         elif "mistral" in model_type:
             return "mistral"
+        elif "granitemoe" in model_type:
+            return "granitemoehybrid"
         elif "phi" in model_type:
             return "phi"
         elif "gpt2" in model_type:
@@ -285,7 +298,10 @@ class ModelSharder:
 
         # Apply quantization if enabled
         if self.config.quantize:
-            quant_config = QuantizationConfig(bits=self.config.quant_bits)
+            quant_config = QuantizationConfig(
+                bits=self.config.quant_bits,
+                group_size=self.config.quant_group_size,
+            )
             quantized_tensors = {}
             for name, tensor in tensors.items():
                 # Only quantize weight tensors, not biases or norms

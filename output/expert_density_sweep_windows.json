@@ -1,0 +1,961 @@
+{
+  "config": {
+    "warmup": 3,
+    "iters_per_run": 10,
+    "runs_per_density": 1
+  },
+  "results": [
+    {
+      "experts_per_server": 64,
+      "n_servers": 1,
+      "pass_count": 1,
+      "total_runs": 1,
+      "runs": [
+        {
+          "pass": true,
+          "iters": [
+            {
+              "iter": 0,
+              "router_ms": 0.3,
+              "dispatch_ms": 37.4,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 1,
+              "router_ms": 0.4,
+              "dispatch_ms": 35.9,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 2,
+              "router_ms": 0.3,
+              "dispatch_ms": 35.0,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 3,
+              "router_ms": 0.3,
+              "dispatch_ms": 36.7,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 4,
+              "router_ms": 0.3,
+              "dispatch_ms": 35.0,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 5,
+              "router_ms": 0.4,
+              "dispatch_ms": 35.8,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 6,
+              "router_ms": 0.3,
+              "dispatch_ms": 36.4,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 7,
+              "router_ms": 0.4,
+              "dispatch_ms": 35.5,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 8,
+              "router_ms": 0.3,
+              "dispatch_ms": 34.5,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 9,
+              "router_ms": 0.4,
+              "dispatch_ms": 34.1,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            }
+          ],
+          "aggregate": {
+            "router": {
+              "mean": 0.35,
+              "median": 0.34,
+              "stdev": 0.04,
+              "min": 0.32,
+              "max": 0.43
+            },
+            "dispatch": {
+              "mean": 35.62,
+              "median": 35.62,
+              "stdev": 1.02,
+              "min": 34.08,
+              "max": 37.36
+            },
+            "recombine": {
+              "mean": 0.89,
+              "median": 0.89,
+              "stdev": 0.06,
+              "min": 0.82,
+              "max": 1.0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "experts_per_server": 32,
+      "n_servers": 2,
+      "pass_count": 1,
+      "total_runs": 1,
+      "runs": [
+        {
+          "pass": true,
+          "iters": [
+            {
+              "iter": 0,
+              "router_ms": 0.3,
+              "dispatch_ms": 19.0,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 1,
+              "router_ms": 0.3,
+              "dispatch_ms": 19.9,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 2,
+              "router_ms": 0.4,
+              "dispatch_ms": 21.5,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 3,
+              "router_ms": 0.5,
+              "dispatch_ms": 21.8,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 4,
+              "router_ms": 0.4,
+              "dispatch_ms": 20.8,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 5,
+              "router_ms": 0.4,
+              "dispatch_ms": 21.5,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 6,
+              "router_ms": 0.4,
+              "dispatch_ms": 20.1,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 7,
+              "router_ms": 0.5,
+              "dispatch_ms": 19.5,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 8,
+              "router_ms": 0.3,
+              "dispatch_ms": 21.6,
+              "recombine_ms": 1.2,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 9,
+              "router_ms": 0.4,
+              "dispatch_ms": 20.7,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            }
+          ],
+          "aggregate": {
+            "router": {
+              "mean": 0.39,
+              "median": 0.39,
+              "stdev": 0.06,
+              "min": 0.3,
+              "max": 0.47
+            },
+            "dispatch": {
+              "mean": 20.65,
+              "median": 20.75,
+              "stdev": 0.98,
+              "min": 19.02,
+              "max": 21.84
+            },
+            "recombine": {
+              "mean": 0.89,
+              "median": 0.87,
+              "stdev": 0.11,
+              "min": 0.8,
+              "max": 1.2
+            }
+          }
+        }
+      ]
+    },
+    {
+      "experts_per_server": 16,
+      "n_servers": 4,
+      "pass_count": 1,
+      "total_runs": 1,
+      "runs": [
+        {
+          "pass": true,
+          "iters": [
+            {
+              "iter": 0,
+              "router_ms": 0.3,
+              "dispatch_ms": 16.5,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 1,
+              "router_ms": 0.4,
+              "dispatch_ms": 16.6,
+              "recombine_ms": 1.1,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 2,
+              "router_ms": 0.4,
+              "dispatch_ms": 16.8,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 3,
+              "router_ms": 0.3,
+              "dispatch_ms": 13.9,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 4,
+              "router_ms": 0.4,
+              "dispatch_ms": 15.6,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 5,
+              "router_ms": 0.3,
+              "dispatch_ms": 14.2,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 6,
+              "router_ms": 0.3,
+              "dispatch_ms": 14.3,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 7,
+              "router_ms": 0.3,
+              "dispatch_ms": 13.6,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 8,
+              "router_ms": 0.4,
+              "dispatch_ms": 13.9,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 9,
+              "router_ms": 0.3,
+              "dispatch_ms": 14.1,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            }
+          ],
+          "aggregate": {
+            "router": {
+              "mean": 0.35,
+              "median": 0.33,
+              "stdev": 0.04,
+              "min": 0.3,
+              "max": 0.42
+            },
+            "dispatch": {
+              "mean": 14.95,
+              "median": 14.24,
+              "stdev": 1.29,
+              "min": 13.59,
+              "max": 16.83
+            },
+            "recombine": {
+              "mean": 0.88,
+              "median": 0.86,
+              "stdev": 0.09,
+              "min": 0.79,
+              "max": 1.08
+            }
+          }
+        }
+      ]
+    },
+    {
+      "experts_per_server": 8,
+      "n_servers": 8,
+      "pass_count": 1,
+      "total_runs": 1,
+      "runs": [
+        {
+          "pass": true,
+          "iters": [
+            {
+              "iter": 0,
+              "router_ms": 0.3,
+              "dispatch_ms": 14.7,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 1,
+              "router_ms": 0.4,
+              "dispatch_ms": 13.4,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 2,
+              "router_ms": 0.3,
+              "dispatch_ms": 15.9,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 3,
+              "router_ms": 0.3,
+              "dispatch_ms": 16.8,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 4,
+              "router_ms": 0.4,
+              "dispatch_ms": 15.0,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 5,
+              "router_ms": 0.3,
+              "dispatch_ms": 14.5,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 6,
+              "router_ms": 0.4,
+              "dispatch_ms": 15.5,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 7,
+              "router_ms": 0.4,
+              "dispatch_ms": 15.5,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 8,
+              "router_ms": 0.4,
+              "dispatch_ms": 14.4,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 9,
+              "router_ms": 0.3,
+              "dispatch_ms": 14.8,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            }
+          ],
+          "aggregate": {
+            "router": {
+              "mean": 0.36,
+              "median": 0.36,
+              "stdev": 0.03,
+              "min": 0.31,
+              "max": 0.4
+            },
+            "dispatch": {
+              "mean": 15.05,
+              "median": 14.88,
+              "stdev": 0.91,
+              "min": 13.44,
+              "max": 16.77
+            },
+            "recombine": {
+              "mean": 0.93,
+              "median": 0.92,
+              "stdev": 0.06,
+              "min": 0.82,
+              "max": 1.03
+            }
+          }
+        }
+      ]
+    },
+    {
+      "experts_per_server": 4,
+      "n_servers": 16,
+      "pass_count": 1,
+      "total_runs": 1,
+      "runs": [
+        {
+          "pass": true,
+          "iters": [
+            {
+              "iter": 0,
+              "router_ms": 0.3,
+              "dispatch_ms": 15.0,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 1,
+              "router_ms": 0.4,
+              "dispatch_ms": 12.6,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 2,
+              "router_ms": 0.4,
+              "dispatch_ms": 13.3,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 3,
+              "router_ms": 0.4,
+              "dispatch_ms": 15.0,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 4,
+              "router_ms": 0.4,
+              "dispatch_ms": 13.0,
+              "recombine_ms": 1.1,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 5,
+              "router_ms": 0.9,
+              "dispatch_ms": 13.6,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 6,
+              "router_ms": 0.5,
+              "dispatch_ms": 12.6,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 7,
+              "router_ms": 0.6,
+              "dispatch_ms": 14.0,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 8,
+              "router_ms": 0.8,
+              "dispatch_ms": 13.8,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 9,
+              "router_ms": 0.4,
+              "dispatch_ms": 14.4,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            }
+          ],
+          "aggregate": {
+            "router": {
+              "mean": 0.51,
+              "median": 0.4,
+              "stdev": 0.19,
+              "min": 0.34,
+              "max": 0.88
+            },
+            "dispatch": {
+              "mean": 13.73,
+              "median": 13.7,
+              "stdev": 0.89,
+              "min": 12.6,
+              "max": 15.05
+            },
+            "recombine": {
+              "mean": 0.87,
+              "median": 0.86,
+              "stdev": 0.08,
+              "min": 0.8,
+              "max": 1.07
+            }
+          }
+        }
+      ]
+    },
+    {
+      "experts_per_server": 2,
+      "n_servers": 32,
+      "pass_count": 1,
+      "total_runs": 1,
+      "runs": [
+        {
+          "pass": true,
+          "iters": [
+            {
+              "iter": 0,
+              "router_ms": 0.7,
+              "dispatch_ms": 22.7,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 1,
+              "router_ms": 0.4,
+              "dispatch_ms": 18.8,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 2,
+              "router_ms": 1.2,
+              "dispatch_ms": 217.4,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 3,
+              "router_ms": 0.4,
+              "dispatch_ms": 11.2,
+              "recombine_ms": 1.1,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 4,
+              "router_ms": 0.4,
+              "dispatch_ms": 14.3,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 5,
+              "router_ms": 0.4,
+              "dispatch_ms": 11.9,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 6,
+              "router_ms": 0.4,
+              "dispatch_ms": 13.1,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 7,
+              "router_ms": 0.4,
+              "dispatch_ms": 12.4,
+              "recombine_ms": 0.8,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 8,
+              "router_ms": 0.4,
+              "dispatch_ms": 12.5,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 9,
+              "router_ms": 0.5,
+              "dispatch_ms": 10.6,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            }
+          ],
+          "aggregate": {
+            "router": {
+              "mean": 0.52,
+              "median": 0.4,
+              "stdev": 0.27,
+              "min": 0.36,
+              "max": 1.24
+            },
+            "dispatch": {
+              "mean": 34.48,
+              "median": 12.8,
+              "stdev": 64.39,
+              "min": 10.6,
+              "max": 217.42
+            },
+            "recombine": {
+              "mean": 0.93,
+              "median": 0.92,
+              "stdev": 0.07,
+              "min": 0.85,
+              "max": 1.06
+            }
+          }
+        }
+      ]
+    },
+    {
+      "experts_per_server": 1,
+      "n_servers": 64,
+      "pass_count": 1,
+      "total_runs": 1,
+      "runs": [
+        {
+          "pass": true,
+          "iters": [
+            {
+              "iter": 0,
+              "router_ms": 0.5,
+              "dispatch_ms": 16.9,
+              "recombine_ms": 1.4,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 1,
+              "router_ms": 0.4,
+              "dispatch_ms": 16.4,
+              "recombine_ms": 1.4,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 2,
+              "router_ms": 0.5,
+              "dispatch_ms": 18.2,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 3,
+              "router_ms": 0.5,
+              "dispatch_ms": 16.4,
+              "recombine_ms": 1.1,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 4,
+              "router_ms": 0.4,
+              "dispatch_ms": 17.0,
+              "recombine_ms": 1.2,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 5,
+              "router_ms": 0.7,
+              "dispatch_ms": 17.5,
+              "recombine_ms": 1.2,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 6,
+              "router_ms": 0.7,
+              "dispatch_ms": 17.6,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 7,
+              "router_ms": 0.5,
+              "dispatch_ms": 16.8,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 8,
+              "router_ms": 0.4,
+              "dispatch_ms": 16.3,
+              "recombine_ms": 1.0,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            },
+            {
+              "iter": 9,
+              "router_ms": 0.8,
+              "dispatch_ms": 23.8,
+              "recombine_ms": 0.9,
+              "experts_hit": 22,
+              "n_experts": 64,
+              "calls": 22,
+              "max_size": 4
+            }
+          ],
+          "aggregate": {
+            "router": {
+              "mean": 0.55,
+              "median": 0.48,
+              "stdev": 0.14,
+              "min": 0.44,
+              "max": 0.8
+            },
+            "dispatch": {
+              "mean": 17.7,
+              "median": 16.94,
+              "stdev": 2.23,
+              "min": 16.34,
+              "max": 23.81
+            },
+            "recombine": {
+              "mean": 1.12,
+              "median": 1.05,
+              "stdev": 0.2,
+              "min": 0.89,
+              "max": 1.43
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
