@@ -251,14 +251,20 @@ def load_experts(experts_dir: Path, ids: list[int], layer: int) -> list[Expert]:
     return out
 
 
-def _json_response(status: int, reason: str, payload: dict):
+def _json_response(status: int, payload: dict):
+    """Legacy websockets process_request return shape:
+        (HTTPStatus_or_int, list[tuple[str,str]] headers, bytes body)
+    Returning None means "proceed with WebSocket handshake".
+    """
+    import http
     body = json.dumps(payload).encode()
-    return websockets.http11.Response(
-        status, reason,
-        websockets.datastructures.Headers([
+    return (
+        http.HTTPStatus(status),
+        [
             ("Content-Type", "application/json"),
             ("Content-Length", str(len(body))),
-        ]),
+            ("Connection", "close"),
+        ],
         body,
     )
 
@@ -268,26 +274,27 @@ async def run(port: int, experts_dir: Path, expert_ids: list[int],
     experts = load_experts(experts_dir, expert_ids, layer)
     host_state = ExpertHost(experts, region=region, layer=layer)
 
-    async def handler(ws: websockets.ServerConnection) -> None:
+    async def handler(ws) -> None:
         await host_state.handle_ws(ws)
 
-    def http_fallback(connection, request):
-        # If this is a WebSocket upgrade, let the WS handshake proceed.
-        upgrade = request.headers.get("Upgrade", "").lower()
-        if upgrade == "websocket":
-            return None
-        path = request.path.split("?", 1)[0]
-        if path in ("/", "/health", "/ready"):
-            return _json_response(200, "OK", {
+    async def http_fallback(path: str, request_headers):
+        # Legacy `websockets` signature: (path, headers) -> Optional[response].
+        # request_headers is a websockets Headers/Multimap; `.get(name)` works.
+        upgrade_hdr = request_headers.get("Upgrade", "") or ""
+        if "websocket" in upgrade_hdr.lower():
+            return None  # proceed with WS handshake
+        clean_path = path.split("?", 1)[0]
+        if clean_path in ("/", "/health", "/ready"):
+            return _json_response(200, {
                 "status": "ok",
                 "region": host_state.region,
                 "layer": host_state.layer,
                 "n_experts": len(host_state.experts),
                 "uptime_s": time.time() - host_state.started_at,
             })
-        if path == "/info":
-            return _json_response(200, "OK", host_state.info_dict())
-        return _json_response(404, "Not Found", {"error": "not found"})
+        if clean_path == "/info":
+            return _json_response(200, host_state.info_dict())
+        return _json_response(404, {"error": "not found"})
 
     logger.info("expert host: region=%s layer=%d experts=%s port=%d",
                 region, layer, host_state.order, port)
