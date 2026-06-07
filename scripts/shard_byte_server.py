@@ -31,6 +31,7 @@ the file is missing on disk.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import logging
@@ -300,6 +301,108 @@ async def handle_manifest(_req):
     }, headers=cors_headers())
 
 
+# -----------------------------------------------------------------------------
+# manifest_v2: artifacts-array shape consumed by hivemind-client's
+# loadGraniteManifest (browser-as-peer-phase1).
+# Schema: wire-frames.md §3.2.
+# -----------------------------------------------------------------------------
+
+_SHA256_CACHE: dict[str, str] = {}
+
+
+def _sha256_of(path: Path) -> str:
+    """Return cached lowercase-hex sha256 of file; computes once per process."""
+    key = str(path.resolve())
+    cached = _SHA256_CACHE.get(key)
+    if cached is not None:
+        return cached
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    digest = h.hexdigest()
+    _SHA256_CACHE[key] = digest
+    return digest
+
+
+def _artifact_entry(uri: str, semantic_tag: str, file_path: Path,
+                    body_bytes: bytes | None = None) -> dict:
+    """Build a single artifact descriptor."""
+    if body_bytes is not None:
+        h = hashlib.sha256()
+        h.update(body_bytes)
+        return {
+            "uri": uri,
+            "sha256": h.hexdigest(),
+            "byte_length": len(body_bytes),
+            "semantic_tag": semantic_tag,
+        }
+    return {
+        "uri": uri,
+        "sha256": _sha256_of(file_path),
+        "byte_length": file_path.stat().st_size,
+        "semantic_tag": semantic_tag,
+    }
+
+
+def _manifest_v2_version() -> str:
+    """Implicit version derived from the on-disk shards.
+
+    Combines mtime of the three primary shards so a redeploy that pulls
+    new bytes from S3 produces a new version string and the browser cache
+    is invalidated.
+    """
+    parts: list[str] = []
+    for name in ("shard_embed.safetensors", "shard_layers_0_9.safetensors",
+                 "shard_head.safetensors"):
+        p = named_shard(name)
+        if p.exists():
+            parts.append(f"{int(p.stat().st_mtime)}")
+        else:
+            parts.append("missing")
+    return "-".join(parts)
+
+
+async def handle_manifest_v2(_req):
+    """Browser-friendly artifacts-array manifest (wire-frames §3.2).
+
+    Used by hivemind-client's loadGraniteManifest. sha256 + byte_length
+    are computed lazily (sha256 cached per-process), so the first call
+    after a deploy is slow (~3 s on a 295 MB shard) and subsequent calls
+    are instant.
+
+    Layer slicing is done at GET time, so the layer-5-without-experts
+    artifact's sha256 + byte_length cannot be precomputed from on-disk
+    files; we slice once and hash the result the same way the layer
+    endpoint will produce it on a real request.
+    """
+    embed_p = named_shard("shard_embed.safetensors")
+    head_p = named_shard("shard_head.safetensors")
+    layer5_src, _ = shard_for_layer(5)
+
+    if not (embed_p.exists() and head_p.exists() and layer5_src.exists()):
+        return web.Response(status=503, text="shards not yet hydrated")
+
+    # Compute layer-5-without-experts bytes (cached after first call).
+    layer5_bytes = await asyncio.get_event_loop().run_in_executor(
+        None, get_layer_bytes, 5, False)
+
+    artifacts = [
+        _artifact_entry("/embed.safetensors", "embed", embed_p),
+        _artifact_entry("/layer/5.safetensors?experts=0",
+                        "layer-5-without-experts", layer5_src,
+                        body_bytes=layer5_bytes),
+        _artifact_entry("/head.safetensors", "head", head_p),
+    ]
+
+    return web.json_response({
+        "model": "granite-tiny",
+        "version": _manifest_v2_version(),
+        "artifacts": artifacts,
+        "tokenizer_uri": "/tokenizer.json",
+    }, headers=cors_headers())
+
+
 async def handle_health(_req):
     embed_p = named_shard("shard_embed.safetensors")
     layer5_src, _ = shard_for_layer(5)
@@ -319,6 +422,7 @@ def build_app() -> web.Application:
     app.router.add_get("/", handle_health)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/manifest.json", handle_manifest)
+    app.router.add_get("/manifest_v2.json", handle_manifest_v2)
     app.router.add_get("/embed.safetensors", handle_embed)
     app.router.add_get("/head.safetensors", handle_head)
     app.router.add_get("/layer/{idx}.safetensors", handle_layer)
