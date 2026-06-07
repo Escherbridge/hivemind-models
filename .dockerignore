@@ -1,10 +1,17 @@
 # Everything off by default
 *
 
-# Re-include only what the expert image needs
+# Re-include what each image needs.
+# Expert image:
 !scripts/expert_railway_server.py
 !output/granite-tiny-q4g64/experts_layer_0/
 !output/granite-tiny-q4g64/experts_layer_0/**
+# Shard byte server image:
+!scripts/shard_byte_server.py
+# Expert coordinator image (lives on track/expert-coordinator_20260606,
+# whitelisted here so main can also build it without diverging .dockerignore):
+!scripts/expert_coordinator.py
+!scripts/_wire.py
 
 # Strip python caches even inside whitelisted paths
 **/__pycache__
