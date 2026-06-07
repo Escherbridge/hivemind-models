@@ -572,21 +572,34 @@ def load_head_from_safetensors(path: Path) -> HeadModule:
     from safetensors.torch import load_file
 
     state = load_file(str(path))
-    head_w = (
-        state.get("lm_head.weight")
-        or state.get("model.lm_head.weight")
-        or state.get("model.embed_tokens.weight")
-    )
+    # Explicit None checks — `tensor or other` triggers torch.Tensor.__bool__
+    # which raises "Boolean value of Tensor with more than one value is
+    # ambiguous" on any non-scalar tensor.
+    head_w = None
+    for key in (
+        "lm_head.weight",
+        "model.lm_head.weight",
+        "model.embed_tokens.weight",
+    ):
+        candidate = state.get(key)
+        if candidate is not None:
+            head_w = candidate
+            break
     if head_w is None:
         raise RuntimeError(
             f"{path} does not contain a head weight under any of: "
             "lm_head.weight, model.lm_head.weight, model.embed_tokens.weight"
         )
-    ln_w = (
-        state.get("model.norm.weight")
-        or state.get("model.final_layernorm.weight")
-        or state.get("final_layernorm.weight")
-    )
+    ln_w = None
+    for key in (
+        "model.norm.weight",
+        "model.final_layernorm.weight",
+        "final_layernorm.weight",
+    ):
+        candidate = state.get(key)
+        if candidate is not None:
+            ln_w = candidate
+            break
     return HeadModule(head_w, ln_w)
 
 
