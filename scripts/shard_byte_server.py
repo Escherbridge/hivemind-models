@@ -417,6 +417,17 @@ async def handle_health(_req):
     }, headers=cors_headers())
 
 
+async def handle_options(_req):
+    """Catch-all CORS preflight handler.
+
+    Browsers issue OPTIONS preflight for cross-origin GETs that include
+    non-simple headers (e.g. `Range`). Without an explicit handler aiohttp
+    returns 405, which Chrome interprets as a CORS failure and aborts the
+    follow-up GET. Return 204 + the standard CORS headers for every path.
+    """
+    return web.Response(status=204, headers=cors_headers())
+
+
 def build_app() -> web.Application:
     app = web.Application(client_max_size=2**30)
     app.router.add_get("/", handle_health)
@@ -426,6 +437,9 @@ def build_app() -> web.Application:
     app.router.add_get("/embed.safetensors", handle_embed)
     app.router.add_get("/head.safetensors", handle_head)
     app.router.add_get("/layer/{idx}.safetensors", handle_layer)
+    # CORS preflight catch-all (must come after the GET routes so it does
+    # not shadow them).
+    app.router.add_route("OPTIONS", "/{tail:.*}", handle_options)
     return app
 
 
