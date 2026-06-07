@@ -549,22 +549,42 @@ class HeadModule:
 
 
 def load_head_from_safetensors(path: Path) -> HeadModule:
-    """Load ``lm_head.weight`` (+ optional ``final_layernorm.weight``) from a file.
+    """Load the head matmul weight (+ optional final RMSNorm weight) from a file.
 
-    The expected tensor names are the ones Granite uses in its head shard:
+    Granite-tiny uses **weight-tied** embeddings: there is no explicit
+    ``lm_head.weight`` in the head shard. Instead ``model.embed_tokens.weight``
+    is reused as the lm_head projection (this matches the conversion in
+    ``scripts/convert_granite_streaming.py`` which packs `model.norm.*`,
+    any `lm_head.*` (typically none on Granite-tiny), and
+    `model.embed_tokens.*` into the head shard).
 
-    - ``lm_head.weight`` -- required.
-    - ``model.final_layernorm.weight`` (or ``final_layernorm.weight``) -- optional.
+    The final RMSNorm tensor on Granite is ``model.norm.weight``; older
+    HF layouts use ``model.final_layernorm.weight``. We try both.
+
+    Lookup order:
+      1. ``lm_head.weight`` (explicit, if the model was un-tied)
+      2. ``model.lm_head.weight`` (older HF layouts)
+      3. ``model.embed_tokens.weight`` (Granite-tiny tied case)
+
+    Raises RuntimeError if none of the above are present.
     """
 
     from safetensors.torch import load_file
 
     state = load_file(str(path))
-    head_w = state.get("lm_head.weight")
+    head_w = (
+        state.get("lm_head.weight")
+        or state.get("model.lm_head.weight")
+        or state.get("model.embed_tokens.weight")
+    )
     if head_w is None:
-        raise RuntimeError(f"{path} does not contain lm_head.weight")
+        raise RuntimeError(
+            f"{path} does not contain a head weight under any of: "
+            "lm_head.weight, model.lm_head.weight, model.embed_tokens.weight"
+        )
     ln_w = (
-        state.get("model.final_layernorm.weight")
+        state.get("model.norm.weight")
+        or state.get("model.final_layernorm.weight")
         or state.get("final_layernorm.weight")
     )
     return HeadModule(head_w, ln_w)
