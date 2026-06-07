@@ -82,13 +82,18 @@ INBOUND_FRAME_MAX_BYTES = 8 * 1024 * 1024  # 8 MB hard cap, per wire-frames §1.
 UPSTREAM_CALL_TIMEOUT_S = 0.5
 
 # Default ping cadence (aiohttp `heartbeat`) for both inbound browser WS and
-# outbound upstream WS. Matches the existing expert services.
-WS_HEARTBEAT_S = 20.0
+# outbound upstream WS.
+# Default raised to 50s (was 20s) to sit just under Railway's 60s edge proxy
+# idle timeout without thrashing. Override via WS_HEARTBEAT_S env var (e.g.,
+# set to 0 to disable WS heartbeat entirely).
+WS_HEARTBEAT_S = float(os.environ.get("WS_HEARTBEAT_S", "50.0"))
 
 # Connection backoff schedule and circuit-breaker constants.
-RECONNECT_BACKOFF_S = [1.0, 2.0, 4.0, 8.0, 16.0, 30.0]
+# Backoff extended at the tail so persistent failures stop hammering the
+# upstream (and Railway's edge) once the circuit has been tripping.
+RECONNECT_BACKOFF_S = [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 60.0, 120.0, 300.0]
 CIRCUIT_THRESHOLD = 3      # consecutive failures before opening
-CIRCUIT_COOLDOWN_S = 5.0   # how long to fast-fail after opening
+CIRCUIT_COOLDOWN_S = 30.0  # how long to fast-fail after opening (was 5s)
 
 # Default fixed wave-3 regions (informational; the actual mapping is built
 # from env vars at boot).
@@ -523,12 +528,16 @@ class HeadModule:
 
         if not isinstance(lm_head_weight, torch.Tensor):
             lm_head_weight = torch.as_tensor(lm_head_weight)
-        self.lm_head_weight = lm_head_weight.to(torch.float32)
-        self.final_layernorm_weight = (
-            torch.as_tensor(final_layernorm_weight).to(torch.float32)
-            if final_layernorm_weight is not None
-            else None
-        )
+        # KEEP the weight in its source dtype (fp16 for Granite). Upcasting
+        # to fp32 here doubles permanent resident memory (300MB -> 600MB on
+        # Granite's [100352, 1536] head). The matmul in forward() handles
+        # dtype promotion by upcasting the small hidden state instead.
+        self.lm_head_weight = lm_head_weight
+        if final_layernorm_weight is not None:
+            ln_w = torch.as_tensor(final_layernorm_weight)
+        else:
+            ln_w = None
+        self.final_layernorm_weight = ln_w
         self.layernorm_eps = layernorm_eps
         self.vocab, self.hidden = self.lm_head_weight.shape
 
@@ -537,13 +546,21 @@ class HeadModule:
 
         with torch.no_grad():
             x = hidden if isinstance(hidden, torch.Tensor) else torch.as_tensor(hidden)
-            x = x.to(torch.float32)
+            # Match the weight's dtype so the matmul does not allocate a
+            # full-precision copy. fp16 matmul on CPU is fine for Granite-tiny
+            # at single-token lm_head scale.
+            target_dtype = self.lm_head_weight.dtype
+            x = x.to(target_dtype)
             if self.final_layernorm_weight is not None:
+                ln_w = self.final_layernorm_weight.to(target_dtype)
                 # RMSNorm: scale by rsqrt(mean(x^2) + eps), then * weight.
                 # Matches GraniteRMSNorm in transformers.
-                var = x.pow(2).mean(dim=-1, keepdim=True)
-                x = x * torch.rsqrt(var + self.layernorm_eps)
-                x = x * self.final_layernorm_weight
+                # Promote just the variance computation to fp32 to avoid
+                # half-precision overflow on the squared sum, then return
+                # to target dtype before applying weight.
+                var = x.to(torch.float32).pow(2).mean(dim=-1, keepdim=True)
+                x = x * torch.rsqrt(var + self.layernorm_eps).to(target_dtype)
+                x = x * ln_w
             logits = x @ self.lm_head_weight.T
             return logits
 
