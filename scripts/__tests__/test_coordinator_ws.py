@@ -204,6 +204,63 @@ async def test_binary_before_hello_errors_and_closes() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Wave-4 desktop-peer: dispatch_moved
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_returns_dispatch_moved_when_no_regions_configured() -> None:
+    """Wave-4 default: when ``config.regions`` is empty, the coordinator no
+    longer routes ``dispatch`` frames to an upstream pool. Instead, it
+    returns a ``dispatch_moved`` error frame and keeps the WS open so the
+    client can switch to /peers/list + WebRTC. See wire-frames.md §1.9.
+    """
+
+    cfg = CoordinatorConfig()
+    cfg.regions = []  # Wave-4 signaling-only mode
+    app = await build_app(cfg)
+    async with TestClient(TestServer(app)) as client:
+        async with client.ws_connect("/ws") as ws:
+            await ws.send_str(json.dumps({"type": "hello", "region": "t"}))
+            ready = await ws.receive_json()
+            assert ready["type"] == "ready"
+            assert ready["regions"] == []
+
+            req_id = str(uuid.uuid4())
+            await ws.send_str(json.dumps({
+                "type": "dispatch",
+                "request_id": req_id,
+                "mode": "wait_all",
+                "k": 1,
+                "calls": [{
+                    "expert_id": 0,
+                    "n_tokens": 1,
+                    "hidden": 1536,
+                    "dtype": 1,
+                    "payload_b64": base64.b64encode(b"\x00" * 3072).decode("ascii"),
+                }],
+            }))
+            err = await ws.receive_json()
+            assert err["type"] == "error"
+            assert err["code"] == "dispatch_moved"
+            assert err["request_id"] == req_id
+
+            # Connection stays open per §1.9 (recoverable error). Verify
+            # by sending an lm_head frame and seeing the regular not-ready
+            # response rather than a closed socket.
+            await ws.send_str(json.dumps({
+                "type": "lm_head",
+                "request_id": str(uuid.uuid4()),
+                "hidden_b64": base64.b64encode(b"\x00" * 3072).decode("ascii"),
+                "shape": [1, 1536],
+                "dtype": "fp16",
+            }))
+            lm = await ws.receive_json()
+            assert lm["type"] == "error"
+            assert lm["code"] == "lm_head_not_ready"
+
+
+# ---------------------------------------------------------------------------
 # Dispatch wait_all
 # ---------------------------------------------------------------------------
 

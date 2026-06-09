@@ -34,6 +34,7 @@ import struct
 import sys
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
@@ -106,6 +107,61 @@ REGION_ENV_VARS: dict[str, tuple[str, str]] = {
     "europe-west4": ("EXPERT_EU_URL", "EXPERT_EU_IDS"),
 }
 
+# Wave-4 desktop-peer: dispatch moved off the coordinator to direct
+# browser <-> peer WebRTC DataChannels (see conductor/tracks/_shared/
+# wire-frames.md §6). When LEGACY_DISPATCH is "0" or unset (the default
+# in Wave 4), the upstream region pool is not started, the `dispatch`
+# frame on `/ws` returns a `dispatch_moved` error, and the lack of
+# EXPERT_*_URL env vars is not a startup failure. Set LEGACY_DISPATCH=1
+# to restore the Wave-3 behavior (still required for old test fixtures
+# that exercise the dispatch surface).
+#
+# The constant is the module-import-time snapshot for callers that don't
+# pass an explicit env dict (e.g. the production main() path). Tests and
+# any code path that takes an env override should call ``_legacy_dispatch_enabled``
+# below with the same env dict they pass to ``load_config_from_env``,
+# so the flag stays consistent with the rest of the config.
+LEGACY_DISPATCH = os.environ.get("LEGACY_DISPATCH", "0") == "1"
+
+
+def _legacy_dispatch_enabled(env: Optional[dict[str, str]] = None) -> bool:
+    """Return whether the legacy Wave-3 dispatch surface is enabled.
+
+    Reads ``LEGACY_DISPATCH`` from ``env`` (or ``os.environ`` if None). The
+    module-level ``LEGACY_DISPATCH`` constant is the snapshot used by
+    runtime code paths (``_handle_ws_message``, ``UpstreamPool.start``)
+    that don't have an env dict at hand; for unit tests and other paths
+    that DO have an env dict, this helper guarantees the same answer.
+    """
+    e = env if env is not None else os.environ
+    return e.get("LEGACY_DISPATCH", "0") == "1"
+
+
+# Wave-4 desktop-peer: in-memory peer registry. Peer TTL defaults to 90 s
+# per wire-frames.md §1.10.1 (announce extends, sweeper drops expired).
+# The sweeper interval is half the TTL by default so a missed announce is
+# detected within one sweep cycle.
+PEER_TTL_S = float(os.environ.get("PEER_TTL_S", "90.0"))
+PEER_SWEEP_INTERVAL_S = float(os.environ.get("PEER_SWEEP_INTERVAL_S", "30.0"))
+PEER_LIST_MAX = 64
+
+# Wave-4 desktop-peer: /peers/socket inbound frame cap. SDP blobs are at
+# most a few KB so 256 KB is plenty (vs. the 8 MB cap on /ws for dispatch
+# payloads). See wire-frames.md §5.1.
+PEER_SOCKET_FRAME_MAX_BYTES = 256 * 1024
+
+# Wave-4 desktop-peer: /peers/socket heartbeat cadence. Coordinator pings
+# the peer every 30 s per wire-frames.md §5.6 / §5.1 step 7. aiohttp's
+# native WS keepalive handles control-frame pong replies; no JSON-level
+# ping is needed.
+PEER_SOCKET_HEARTBEAT_S = float(os.environ.get("PEER_SOCKET_HEARTBEAT_S", "30.0"))
+
+# Wave-4 desktop-peer: inbox TTL for /peers/signal GET drains. Per
+# wire-frames.md §1.10.4, entries TTL out after 10 s if the browser
+# never polls them. The inbox keys are (peer_id, nonce); the deque is
+# trimmed on every push and on every GET.
+PEER_SIGNAL_INBOX_TTL_S = float(os.environ.get("PEER_SIGNAL_INBOX_TTL_S", "10.0"))
+
 # Closed set of error codes the coordinator may emit on the browser surface.
 # Tests import this. Adding a new code is a wire-breaking change.
 ERROR_CODES: set[str] = {
@@ -121,6 +177,11 @@ ERROR_CODES: set[str] = {
     "upstream_unavailable",
     "all_regions_failed",
     "internal_error",
+    # Wave-4 desktop-peer additions (see wire-frames.md §1.9):
+    "dispatch_moved",
+    "peer_offline",
+    "unknown_peer",
+    "peer_id_collision",
 }
 
 
@@ -208,10 +269,11 @@ def load_config_from_env(env: Optional[dict[str, str]] = None) -> CoordinatorCon
             continue
         regions.append(RegionConfig(label=label, url=url, expert_ids=ids))
 
-    if not regions:
+    if not regions and _legacy_dispatch_enabled(env):
         raise SystemExit(
             "No expert regions configured. Set at least one of "
-            "EXPERT_US_WEST_URL/IDS, EXPERT_US_EAST_URL/IDS, EXPERT_EU_URL/IDS."
+            "EXPERT_US_WEST_URL/IDS, EXPERT_US_EAST_URL/IDS, EXPERT_EU_URL/IDS, "
+            "or unset LEGACY_DISPATCH to run in Wave-4 signaling-only mode."
         )
     cfg.regions = regions
 
@@ -292,7 +354,22 @@ class UpstreamPool:
         return out
 
     async def start(self) -> None:
-        """Spawn the reconnect supervisor for each region."""
+        """Spawn the reconnect supervisor for each region.
+
+        Wave-4 desktop-peer: when ``self.regions`` is empty (the new
+        default when ``LEGACY_DISPATCH`` is unset), this is a no-op. No
+        aiohttp client session is opened, no supervisor task is spawned,
+        and the coordinator stops thrashing reconnects against the dead
+        Wave-3 ``expert-*-production`` URLs.
+        """
+
+        if not self.regions:
+            logger.info(
+                "upstream pool: no regions configured (LEGACY_DISPATCH=%s); "
+                "dispatch is browser <-> peer over WebRTC in Wave-4",
+                LEGACY_DISPATCH,
+            )
+            return
 
         if self._ws_connect is None:
             # Lazy aiohttp client session for production use.
@@ -503,6 +580,273 @@ class UpstreamPool:
 
 class UpstreamUnavailable(RuntimeError):
     """Raised when a region is offline, its circuit is open, or timed out."""
+
+
+# ---------------------------------------------------------------------------
+# Wave-4 desktop-peer: peer registry
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PeerEntry:
+    """One entry in the in-memory peer registry.
+
+    Mirrors the wire-frames.md §1.10.1 / §1.10.2 contract:
+
+    - ``peer_id`` is the v4 UUID the peer generated and persisted.
+    - ``capabilities`` is the most recent announce body's capabilities dict.
+    - ``expires_at_s`` is wall-clock seconds since epoch; entries older than
+      this are dropped by ``PeerRegistry.sweep_expired``.
+    - ``last_seen_s`` tracks the most recent announce timestamp; the list
+      endpoint uses this to compute ``last_seen_ms_ago``.
+    - ``ws`` is the live aiohttp WebSocketResponse for ``/peers/socket/
+      <peer_id>``, set by Task 1.5. ``None`` until the peer opens its
+      socket; the list endpoint filters by this being non-None.
+    """
+
+    peer_id: str
+    capabilities: dict
+    expires_at_s: float
+    last_seen_s: float
+    ws: Any = None  # web.WebSocketResponse | None, late-bound to dodge import cycle
+
+
+class PeerRegistry:
+    """Thread-safe (single event loop) in-memory peer registry.
+
+    Lifecycle:
+
+    1. Peer POSTs ``/peers/announce`` -> ``register(peer_id, capabilities)``.
+    2. Peer opens WSS to ``/peers/socket/<peer_id>`` -> ``attach_ws``.
+    3. Peer re-announces every 60 s -> ``register`` extends TTL.
+    4. Heartbeat or sweeper finds entry expired -> ``sweep_expired``.
+
+    The registry is held by ``Coordinator`` and read by the HTTP / WSS
+    handlers. No locks: aiohttp dispatches inside one asyncio event loop,
+    so all access is single-threaded.
+    """
+
+    def __init__(self, ttl_s: float = PEER_TTL_S) -> None:
+        self.ttl_s = ttl_s
+        self._entries: dict[str, PeerEntry] = {}
+
+    # -- mutation ---------------------------------------------------------
+
+    def register(self, peer_id: str, capabilities: dict) -> PeerEntry:
+        """Create or refresh the entry for ``peer_id``.
+
+        Idempotent: re-announce with the same id reuses the entry object,
+        updates ``capabilities``, and pushes ``expires_at_s`` forward.
+        """
+        now = time.time()
+        entry = self._entries.get(peer_id)
+        if entry is None:
+            entry = PeerEntry(
+                peer_id=peer_id,
+                capabilities=dict(capabilities),
+                expires_at_s=now + self.ttl_s,
+                last_seen_s=now,
+            )
+            self._entries[peer_id] = entry
+        else:
+            entry.capabilities = dict(capabilities)
+            entry.expires_at_s = now + self.ttl_s
+            entry.last_seen_s = now
+        return entry
+
+    def attach_ws(self, peer_id: str, ws: Any) -> Optional[PeerEntry]:
+        """Bind the live WSS to an existing entry. Returns None if no entry."""
+        entry = self._entries.get(peer_id)
+        if entry is None:
+            return None
+        entry.ws = ws
+        entry.last_seen_s = time.time()
+        return entry
+
+    def detach_ws(self, peer_id: str) -> None:
+        """Clear the WSS pointer (e.g. on disconnect). Entry stays for TTL."""
+        entry = self._entries.get(peer_id)
+        if entry is not None:
+            entry.ws = None
+
+    def sweep_expired(self, now: Optional[float] = None) -> list[str]:
+        """Drop entries whose ``expires_at_s`` is in the past. Returns dropped ids."""
+        now = now if now is not None else time.time()
+        dropped: list[str] = []
+        for pid, entry in list(self._entries.items()):
+            if entry.expires_at_s <= now:
+                dropped.append(pid)
+                del self._entries[pid]
+        return dropped
+
+    # -- read -------------------------------------------------------------
+
+    def get(self, peer_id: str) -> Optional[PeerEntry]:
+        return self._entries.get(peer_id)
+
+    def list_active(
+        self,
+        now: Optional[float] = None,
+        require_ws: bool = False,
+        limit: int = PEER_LIST_MAX,
+    ) -> list[dict[str, Any]]:
+        """Return up to ``limit`` non-expired entries as JSON-shaped dicts.
+
+        Sorted by ``last_seen_ms_ago`` ascending (most-recently-seen first).
+        If ``require_ws`` is True, only entries with a live ``/peers/socket``
+        connection are returned — this is what ``GET /peers/list`` uses, so
+        the browser only learns about peers it can actually signal to.
+        """
+        now = now if now is not None else time.time()
+        active: list[PeerEntry] = []
+        for entry in self._entries.values():
+            if entry.expires_at_s <= now:
+                continue
+            if require_ws and entry.ws is None:
+                continue
+            active.append(entry)
+        active.sort(key=lambda e: e.last_seen_s, reverse=True)
+        out: list[dict[str, Any]] = []
+        for entry in active[:limit]:
+            out.append({
+                "peer_id": entry.peer_id,
+                "capabilities": dict(entry.capabilities),
+                "last_seen_ms_ago": max(0, int((now - entry.last_seen_s) * 1000)),
+            })
+        return out
+
+
+class SignalInbox:
+    """Per-(peer_id, browser-nonce) inbox of peer->browser signal frames.
+
+    The browser does not hold a socket to the coordinator for signaling
+    answers — it polls ``GET /peers/signal/<peer_id>?inbox=<nonce>``
+    (wire-frames.md §1.10.4). Each peer-side ``signal`` frame whose
+    ``to`` field matches a known nonce is stashed here; the next GET
+    drains it.
+
+    Entries TTL out after ``PEER_SIGNAL_INBOX_TTL_S`` (default 10 s)
+    so an abandoned browser tab doesn't leak the entries forever. The
+    TTL is enforced lazily on every push and drain — no background
+    sweeper task; the inbox surface is rarely-used relative to the
+    registry sweeper, so lazy cleanup is enough.
+    """
+
+    def __init__(self, ttl_s: float = PEER_SIGNAL_INBOX_TTL_S) -> None:
+        self.ttl_s = ttl_s
+        # key: (peer_id, nonce) -> deque[(enqueued_at_s, frame_dict)]
+        self._inboxes: dict[tuple[str, str], deque[tuple[float, dict]]] = {}
+
+    def _prune(self, now: float, key: tuple[str, str]) -> None:
+        dq = self._inboxes.get(key)
+        if dq is None:
+            return
+        while dq and (now - dq[0][0]) > self.ttl_s:
+            dq.popleft()
+        if not dq:
+            self._inboxes.pop(key, None)
+
+    def push(self, peer_id: str, nonce: str, frame: dict) -> None:
+        """Stash one peer->browser frame for the (peer_id, nonce) inbox."""
+        now = time.time()
+        key = (peer_id, nonce)
+        dq = self._inboxes.setdefault(key, deque())
+        dq.append((now, dict(frame)))
+        self._prune(now, key)
+
+    def drain(self, peer_id: str, nonce: str) -> list[dict]:
+        """Return and clear all non-expired frames for ``(peer_id, nonce)``."""
+        now = time.time()
+        key = (peer_id, nonce)
+        self._prune(now, key)
+        dq = self._inboxes.pop(key, None)
+        if dq is None:
+            return []
+        return [frame for (_ts, frame) in dq]
+
+    def sweep_expired(self, now: Optional[float] = None) -> int:
+        """Drop all expired entries; return the number of inboxes pruned."""
+        now = now if now is not None else time.time()
+        dropped = 0
+        for key in list(self._inboxes.keys()):
+            self._prune(now, key)
+            if key not in self._inboxes:
+                dropped += 1
+        return dropped
+
+
+def _is_valid_uuid_v4(s: object) -> bool:
+    """Per wire-frames.md §4.4: lowercase hyphenated UUID v4, 36 chars."""
+    if not isinstance(s, str) or len(s) != 36:
+        return False
+    try:
+        u = uuid.UUID(s)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    if u.version != 4:
+        return False
+    # Reject UUIDs with uppercase hex (the canonical form is lowercase).
+    return s == str(u)
+
+
+def validate_announce_body(body: object) -> dict[str, Any]:
+    """Validate a ``POST /peers/announce`` body. Raises ``FrameError`` on bad input.
+
+    Returns a normalized dict ``{"peer_id": str, "capabilities": dict}``.
+    Capabilities are validated per wire-frames.md §1.10.1:
+
+    - ``expert_ids``: non-empty sorted list of ints in [0, 63].
+    - ``compute_mode``: ``"real"`` or ``"echo"``.
+    - ``dtype``: ``"fp16"`` (Wave-4 has one model).
+    - ``hidden``: must equal ``HIDDEN_DIM`` (1536).
+    """
+    if not isinstance(body, dict):
+        raise FrameError("bad_json", "announce body must be a JSON object")
+
+    peer_id = body.get("peer_id")
+    if not _is_valid_uuid_v4(peer_id):
+        raise FrameError("bad_json", "peer_id must be a lowercase v4 UUID string")
+
+    caps = body.get("capabilities")
+    if not isinstance(caps, dict):
+        raise FrameError("bad_shape", "capabilities must be a JSON object")
+
+    expert_ids = caps.get("expert_ids")
+    if not isinstance(expert_ids, list) or not expert_ids:
+        raise FrameError("bad_shape", "capabilities.expert_ids must be a non-empty list")
+    for eid in expert_ids:
+        if not isinstance(eid, int) or isinstance(eid, bool):
+            raise FrameError("bad_expert_id", f"expert id {eid!r} must be an integer")
+        if not (0 <= eid < N_EXPERTS_TOTAL):
+            raise FrameError(
+                "bad_expert_id",
+                f"expert id {eid} outside [0, {N_EXPERTS_TOTAL - 1}]",
+            )
+
+    compute_mode = caps.get("compute_mode")
+    if compute_mode not in ("real", "echo"):
+        raise FrameError(
+            "bad_shape",
+            f"compute_mode {compute_mode!r} must be 'real' or 'echo'",
+        )
+
+    dtype = caps.get("dtype")
+    if dtype != "fp16":
+        raise FrameError("bad_shape", f"dtype {dtype!r} must be 'fp16'")
+
+    hidden = caps.get("hidden")
+    if hidden != HIDDEN_DIM:
+        raise FrameError("bad_shape", f"hidden {hidden!r} must equal {HIDDEN_DIM}")
+
+    return {
+        "peer_id": peer_id,
+        "capabilities": {
+            "expert_ids": list(expert_ids),
+            "compute_mode": compute_mode,
+            "dtype": dtype,
+            "hidden": hidden,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -753,6 +1097,8 @@ class Coordinator:
         upstream_pool: Optional[UpstreamPool] = None,
         head_module: Optional[HeadModule] = None,
         tokenizer: Any = None,
+        peer_registry: Optional[PeerRegistry] = None,
+        signal_inbox: Optional[SignalInbox] = None,
     ) -> None:
         self.config = config
         self.pool = upstream_pool or UpstreamPool(
@@ -762,6 +1108,14 @@ class Coordinator:
         self.tokenizer = tokenizer
         self.head_load_error: Optional[str] = None
         self.stats = CoordinatorStats()
+        # Wave-4 desktop-peer: in-memory peer registry. The sweeper task is
+        # spawned by ``run_forever``; tests that don't need TTL sweeping
+        # just construct the registry and skip the sweeper.
+        self.peer_registry: PeerRegistry = peer_registry or PeerRegistry()
+        self._peer_sweeper_task: Optional[asyncio.Task] = None
+        # Wave-4 desktop-peer: per-(peer_id, browser-nonce) inbox of
+        # peer->browser signal frames. Drained by GET /peers/signal.
+        self.signal_inbox: SignalInbox = signal_inbox or SignalInbox()
 
     @property
     def lm_head_ready(self) -> bool:
@@ -1266,6 +1620,61 @@ async def handle_options(request: web.Request) -> web.Response:
     return web.Response(status=204, headers=_cors_headers())
 
 
+# ---------------------------------------------------------------------------
+# Wave-4 desktop-peer: /peers/* handlers
+# ---------------------------------------------------------------------------
+
+
+async def handle_peers_list(request: web.Request) -> web.Response:
+    """GET /peers/list. See wire-frames.md §1.10.2.
+
+    Returns up to ``PEER_LIST_MAX`` (64) non-expired peers that have a
+    live ``/peers/socket/<peer_id>`` WSS attached. Sorted by
+    ``last_seen_ms_ago`` ascending (most-recently-seen first).
+    """
+    coord: Coordinator = request.app["coord"]
+    peers = coord.peer_registry.list_active(require_ws=True)
+    return web.json_response({"peers": peers}, headers=_cors_headers())
+
+
+async def handle_peers_announce(request: web.Request) -> web.Response:
+    """POST /peers/announce. See wire-frames.md §1.10.1.
+
+    Validates the announce body, upserts the peer registry entry, returns
+    ``{"status": "announced", "peer_id": ..., "expires_at_s": ...,
+    "ttl_s": ...}``. Idempotent on ``peer_id``: re-announce extends TTL
+    and updates capabilities.
+    """
+    coord: Coordinator = request.app["coord"]
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response(
+            {"error": "bad_json", "message": "JSON parse failed"},
+            status=400, headers=_cors_headers(),
+        )
+    try:
+        normalized = validate_announce_body(body)
+    except FrameError as e:
+        coord.stats.record_error(e.code)
+        return web.json_response(
+            {"error": e.code, "message": e.message},
+            status=400, headers=_cors_headers(),
+        )
+    entry = coord.peer_registry.register(
+        normalized["peer_id"], normalized["capabilities"],
+    )
+    return web.json_response(
+        {
+            "status": "announced",
+            "peer_id": entry.peer_id,
+            "expires_at_s": entry.expires_at_s,
+            "ttl_s": int(coord.peer_registry.ttl_s),
+        },
+        headers=_cors_headers(),
+    )
+
+
 async def handle_lm_head_http(request: web.Request) -> web.Response:
     coord: Coordinator = request.app["coord"]
     try:
@@ -1355,7 +1764,27 @@ async def _handle_ws_message(
 
     ftype = parsed.get("type")
     if ftype == "dispatch":
-        await _handle_dispatch(coord, ws, parsed)
+        # Wave-4 desktop-peer: when no upstream regions are configured (the
+        # default outside the Wave-3 fixtures), dispatch is now browser
+        # <-> peer over WebRTC DataChannels. The /ws endpoint still serves
+        # lm_head; the dispatch frame is a soft-rejected legacy surface
+        # and the connection stays open per wire-frames.md §1.9.
+        #
+        # The runtime gate is "config.regions is non-empty" rather than a
+        # raw env-var check, so unit-test fixtures that set up regions
+        # explicitly (test_coordinator_ws.py) continue to exercise the
+        # legacy dispatch path without needing to monkeypatch env vars.
+        if coord.config.regions:
+            await _handle_dispatch(coord, ws, parsed)
+        else:
+            coord.stats.record_error("dispatch_moved")
+            await _send_error_frame(
+                ws,
+                "dispatch_moved",
+                "Dispatch is now browser <-> peer over WebRTC; "
+                "see /peers/list and wire-frames.md §6.",
+                request_id=parsed.get("request_id"),
+            )
     elif ftype == "lm_head":
         await _handle_lm_head_ws(coord, ws, parsed)
     else:
@@ -1426,6 +1855,421 @@ async def _handle_lm_head_ws(
         "top_5": top_5,
         "ms": ms,
     }))
+
+
+# ---------------------------------------------------------------------------
+# Wave-4 desktop-peer: /peers/socket WSS + /peers/signal HTTP relay
+# ---------------------------------------------------------------------------
+
+
+def _validate_peer_hello(body: object, path_peer_id: str) -> dict[str, Any]:
+    """Validate the first peer->coord frame on ``/peers/socket/<peer_id>``.
+
+    Per wire-frames.md §5.2: ``type == "hello"``, ``peer_id`` matches the
+    path, and ``capabilities`` matches the most recent ``/peers/announce``
+    body for that peer_id. Raises FrameError on any mismatch.
+    """
+    if not isinstance(body, dict):
+        raise FrameError("bad_json", "hello must be a JSON object")
+    if body.get("type") != "hello":
+        raise FrameError("expected_hello", "first frame must be type=hello")
+    body_pid = body.get("peer_id")
+    if not _is_valid_uuid_v4(body_pid):
+        raise FrameError(
+            "unknown_peer", "hello.peer_id must be a lowercase v4 UUID",
+        )
+    if body_pid != path_peer_id:
+        raise FrameError(
+            "unknown_peer",
+            f"hello.peer_id {body_pid!r} does not match path {path_peer_id!r}",
+        )
+    caps = body.get("capabilities")
+    if not isinstance(caps, dict):
+        raise FrameError("bad_shape", "hello.capabilities must be a JSON object")
+    return {"peer_id": body_pid, "capabilities": caps}
+
+
+def _capabilities_equal(a: dict, b: dict) -> bool:
+    """Per §5.2: hello.capabilities must match the announce capabilities.
+
+    Compare on the four required keys; extra fields are ignored so future
+    capability additions don't trip collision-detection on stale clients.
+    """
+    keys = ("expert_ids", "compute_mode", "dtype", "hidden")
+    for k in keys:
+        if a.get(k) != b.get(k):
+            return False
+    return True
+
+
+async def _route_peer_signal_frame(
+    coord: Coordinator, peer_id: str, parsed: dict[str, Any],
+) -> Optional[FrameError]:
+    """Stash a peer->browser ``signal`` frame in the addressed inbox.
+
+    Per wire-frames.md §5.4: exactly one of ``sdp`` or ``candidate`` must
+    be non-null; ``to`` is the browser nonce. Unknown ``to`` (no inbox)
+    is silently dropped — the browser may have given up and the spec
+    says this is not an error.
+    """
+    to = parsed.get("to")
+    if not isinstance(to, str) or not to:
+        return FrameError("bad_shape", "signal.to must be a non-empty string")
+    sdp = parsed.get("sdp")
+    cand = parsed.get("candidate")
+    if (sdp is None) == (cand is None):
+        return FrameError(
+            "bad_shape",
+            "exactly one of signal.sdp or signal.candidate must be non-null",
+        )
+    coord.signal_inbox.push(peer_id, to, parsed)
+    return None
+
+
+async def handle_peers_socket(request: web.Request) -> web.WebSocketResponse:
+    """``WSS /peers/socket/<peer_id>``. See wire-frames.md §5.
+
+    Lifecycle:
+
+    1. Peer opens the WSS.
+    2. First text frame MUST be ``type=hello`` with matching ``peer_id``;
+       any mismatch closes 1002 with the appropriate error code.
+    3. Coordinator replies ``ready`` and binds the live WS to the
+       registry entry via ``attach_ws``.
+    4. Peer pushes ``signal`` frames addressed to a browser nonce; the
+       coordinator stashes them in ``SignalInbox`` for GET drainage.
+    5. Coordinator pushes ``signal`` frames the other direction when
+       browsers POST to ``/peers/signal/<peer_id>`` (see
+       ``handle_peers_signal_post``).
+    6. On close: ``detach_ws`` clears the pointer; the registry entry
+       stays alive for the TTL window so a quick reconnect doesn't
+       require a fresh announce.
+
+    aiohttp's native ``heartbeat=PEER_SOCKET_HEARTBEAT_S`` handles
+    control-frame pings; missed pongs close the socket automatically.
+    """
+
+    coord: Coordinator = request.app["coord"]
+    peer_id = request.match_info.get("peer_id", "")
+
+    # Reject obviously-malformed path early so we don't accept the WS just
+    # to immediately close it (and so test clients without an Upgrade
+    # header still see the structured ``unknown_peer`` error).
+    if not _is_valid_uuid_v4(peer_id):
+        return web.json_response(
+            {"error": "unknown_peer",
+             "message": "peer_id path param must be a lowercase v4 UUID"},
+            status=400, headers=_cors_headers(),
+        )
+
+    upgrade = request.headers.get("Upgrade", "").lower()
+    if "websocket" not in upgrade:
+        return web.json_response(
+            {"error": "expected_websocket_upgrade"},
+            status=400, headers=_cors_headers(),
+        )
+
+    origin = request.headers.get("Origin", "<missing>")
+    logger.info(
+        "peer-socket upgrade peer=%s origin=%s remote=%s",
+        peer_id, origin, request.remote,
+    )
+
+    ws = web.WebSocketResponse(
+        heartbeat=PEER_SOCKET_HEARTBEAT_S,
+        max_msg_size=PEER_SOCKET_FRAME_MAX_BYTES,
+    )
+    await ws.prepare(request)
+
+    # ---- Phase 1: await hello -------------------------------------------
+    try:
+        first = await ws.receive(timeout=30.0)
+    except asyncio.TimeoutError:
+        coord.stats.record_error("expected_hello")
+        await _send_error_frame(ws, "expected_hello", "no hello within 30s")
+        await ws.close(code=1002)
+        return ws
+
+    if first.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.ERROR):
+        return ws
+    if first.type == WSMsgType.BINARY:
+        coord.stats.record_error("expected_hello")
+        await _send_error_frame(
+            ws, "expected_hello", "first frame must be text hello",
+        )
+        await ws.close(code=1002)
+        return ws
+    if first.type != WSMsgType.TEXT:
+        coord.stats.record_error("expected_hello")
+        await _send_error_frame(
+            ws, "expected_hello", "first frame must be text hello",
+        )
+        await ws.close(code=1002)
+        return ws
+
+    if len(first.data.encode("utf-8")) > PEER_SOCKET_FRAME_MAX_BYTES:
+        coord.stats.record_error("frame_too_large")
+        await _send_error_frame(
+            ws, "frame_too_large",
+            f"hello frame > {PEER_SOCKET_FRAME_MAX_BYTES // 1024} KB",
+        )
+        await ws.close(code=1002)
+        return ws
+
+    try:
+        hello = json.loads(first.data)
+    except json.JSONDecodeError as e:
+        coord.stats.record_error("bad_json")
+        await _send_error_frame(ws, "bad_json", f"hello JSON parse failed: {e}")
+        await ws.close(code=1002)
+        return ws
+
+    try:
+        normalized = _validate_peer_hello(hello, peer_id)
+    except FrameError as e:
+        coord.stats.record_error(e.code)
+        await _send_error_frame(ws, e.code, e.message)
+        await ws.close(code=1002)
+        return ws
+
+    entry = coord.peer_registry.get(peer_id)
+    if entry is None:
+        # Peer connected before announce. wire-frames.md §5.1 requires the
+        # announce-first ordering; reject without leaking an entry.
+        coord.stats.record_error("unknown_peer")
+        await _send_error_frame(
+            ws, "unknown_peer",
+            "no registry entry for peer_id; POST /peers/announce first",
+        )
+        await ws.close(code=1002)
+        return ws
+
+    if not _capabilities_equal(normalized["capabilities"], entry.capabilities):
+        # A second peer process is trying to hijack the id (or the user
+        # restarted with different flags without re-announcing).
+        coord.stats.record_error("peer_id_collision")
+        await _send_error_frame(
+            ws, "peer_id_collision",
+            "hello.capabilities does not match the most recent announce",
+        )
+        await ws.close(code=1002)
+        return ws
+
+    if entry.ws is not None:
+        # Another live WSS already holds this peer_id; refuse the new one.
+        coord.stats.record_error("peer_id_collision")
+        await _send_error_frame(
+            ws, "peer_id_collision",
+            "another /peers/socket connection is already live for this peer_id",
+        )
+        await ws.close(code=1002)
+        return ws
+
+    coord.peer_registry.attach_ws(peer_id, ws)
+    await ws.send_str(json.dumps({
+        "type": "ready",
+        "protocol_version": PROTOCOL_VERSION,
+        "ping_interval_s": int(PEER_SOCKET_HEARTBEAT_S),
+    }))
+
+    # ---- Phase 2: signal-routing loop -----------------------------------
+    try:
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                if len(msg.data.encode("utf-8")) > PEER_SOCKET_FRAME_MAX_BYTES:
+                    coord.stats.record_error("frame_too_large")
+                    await _send_error_frame(
+                        ws, "frame_too_large",
+                        f"frame > {PEER_SOCKET_FRAME_MAX_BYTES // 1024} KB",
+                    )
+                    continue
+                try:
+                    parsed = json.loads(msg.data)
+                except json.JSONDecodeError as e:
+                    coord.stats.record_error("bad_json")
+                    await _send_error_frame(
+                        ws, "bad_json", f"JSON parse failed: {e}",
+                    )
+                    continue
+                if not isinstance(parsed, dict):
+                    coord.stats.record_error("bad_json")
+                    await _send_error_frame(
+                        ws, "bad_json", "frame must be a JSON object",
+                    )
+                    continue
+                ftype = parsed.get("type")
+                if ftype == "signal":
+                    err = await _route_peer_signal_frame(coord, peer_id, parsed)
+                    if err is not None:
+                        coord.stats.record_error(err.code)
+                        await _send_error_frame(ws, err.code, err.message)
+                else:
+                    coord.stats.record_error("unknown_type")
+                    await _send_error_frame(
+                        ws, "unknown_type",
+                        f"unsupported frame type {ftype!r}",
+                    )
+            elif msg.type == WSMsgType.BINARY:
+                coord.stats.record_error("unknown_type")
+                await _send_error_frame(
+                    ws, "unknown_type",
+                    "binary frames not supported on /peers/socket",
+                )
+            elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.ERROR):
+                break
+    finally:
+        coord.peer_registry.detach_ws(peer_id)
+    return ws
+
+
+async def handle_peers_signal_post(request: web.Request) -> web.Response:
+    """``POST /peers/signal/<peer_id>``. See wire-frames.md §1.10.3.
+
+    Relays an SDP offer or ICE candidate from a browser to the peer's
+    live WSS, rewrapped as ``{"type": "signal", ...body}``.
+
+    Status codes:
+
+    - **202** ``{"status": "relayed"}`` on successful forward.
+    - **404** ``{"error": "unknown_peer"}`` if no registry entry.
+    - **410** ``{"error": "peer_offline"}`` if no live WSS attached.
+    - **400** on bad body shape (``bad_json``, ``bad_shape``).
+    """
+    coord: Coordinator = request.app["coord"]
+    peer_id = request.match_info.get("peer_id", "")
+
+    if not _is_valid_uuid_v4(peer_id):
+        coord.stats.record_error("unknown_peer")
+        return web.json_response(
+            {"error": "unknown_peer",
+             "message": "peer_id path param must be a lowercase v4 UUID"},
+            status=404, headers=_cors_headers(),
+        )
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        coord.stats.record_error("bad_json")
+        return web.json_response(
+            {"error": "bad_json", "message": "JSON parse failed"},
+            status=400, headers=_cors_headers(),
+        )
+    if not isinstance(body, dict):
+        coord.stats.record_error("bad_json")
+        return web.json_response(
+            {"error": "bad_json", "message": "body must be a JSON object"},
+            status=400, headers=_cors_headers(),
+        )
+
+    src = body.get("from")
+    if not isinstance(src, str) or not src.startswith("browser-"):
+        coord.stats.record_error("bad_shape")
+        return web.json_response(
+            {"error": "bad_shape",
+             "message": "from must be a string prefixed 'browser-'"},
+            status=400, headers=_cors_headers(),
+        )
+
+    sdp = body.get("sdp")
+    cand = body.get("candidate")
+    if (sdp is None) == (cand is None):
+        coord.stats.record_error("bad_shape")
+        return web.json_response(
+            {"error": "bad_shape",
+             "message": "exactly one of sdp or candidate must be non-null"},
+            status=400, headers=_cors_headers(),
+        )
+
+    entry = coord.peer_registry.get(peer_id)
+    if entry is None:
+        coord.stats.record_error("unknown_peer")
+        return web.json_response(
+            {"error": "unknown_peer",
+             "message": f"no registry entry for peer_id {peer_id}"},
+            status=404, headers=_cors_headers(),
+        )
+    if entry.ws is None:
+        coord.stats.record_error("peer_offline")
+        return web.json_response(
+            {"error": "peer_offline",
+             "message": "peer has no live /peers/socket connection"},
+            status=410, headers=_cors_headers(),
+        )
+
+    frame = {
+        "type": "signal",
+        "from": src,
+        "sdp": sdp,
+        "candidate": cand,
+    }
+    try:
+        await entry.ws.send_str(json.dumps(frame))
+    except (ConnectionResetError, RuntimeError) as e:
+        # Peer disconnected between the entry check and the send. Clear
+        # the pointer and surface the same 410 the caller would have
+        # seen if it had retried.
+        logger.info("peer-socket send failed mid-relay peer=%s: %s", peer_id, e)
+        coord.peer_registry.detach_ws(peer_id)
+        coord.stats.record_error("peer_offline")
+        return web.json_response(
+            {"error": "peer_offline",
+             "message": "peer socket closed mid-relay"},
+            status=410, headers=_cors_headers(),
+        )
+
+    return web.json_response(
+        {"status": "relayed"}, status=202, headers=_cors_headers(),
+    )
+
+
+async def handle_peers_signal_get(request: web.Request) -> web.Response:
+    """``GET /peers/signal/<peer_id>?inbox=<nonce>``. See wire-frames.md §1.10.4.
+
+    Drains and returns all non-expired peer->browser ``signal`` frames
+    that the peer addressed to ``nonce``. Returns ``{"signals": [...]}``;
+    second GET with the same nonce returns ``{"signals": []}`` until
+    fresh frames arrive (inbox is drained on read).
+
+    - **200** with signals on success (possibly empty).
+    - **404** ``{"error": "unknown_peer"}`` if no registry entry for ``peer_id``.
+    - **400** ``{"error": "bad_shape"}`` if ``inbox`` query param missing.
+    """
+    coord: Coordinator = request.app["coord"]
+    peer_id = request.match_info.get("peer_id", "")
+
+    if not _is_valid_uuid_v4(peer_id):
+        coord.stats.record_error("unknown_peer")
+        return web.json_response(
+            {"error": "unknown_peer",
+             "message": "peer_id path param must be a lowercase v4 UUID"},
+            status=404, headers=_cors_headers(),
+        )
+
+    nonce = request.query.get("inbox", "")
+    if not nonce:
+        coord.stats.record_error("bad_shape")
+        return web.json_response(
+            {"error": "bad_shape", "message": "inbox query param is required"},
+            status=400, headers=_cors_headers(),
+        )
+
+    if coord.peer_registry.get(peer_id) is None:
+        coord.stats.record_error("unknown_peer")
+        return web.json_response(
+            {"error": "unknown_peer",
+             "message": f"no registry entry for peer_id {peer_id}"},
+            status=404, headers=_cors_headers(),
+        )
+
+    signals = coord.signal_inbox.drain(peer_id, nonce)
+    return web.json_response(
+        {"signals": signals}, headers=_cors_headers(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# /ws (Wave-3 surface, kept for lm_head and dispatch_moved soft-reject)
+# ---------------------------------------------------------------------------
 
 
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
@@ -1559,6 +2403,16 @@ async def build_app(config: CoordinatorConfig) -> web.Application:
     app.router.add_post("/lm_head", handle_lm_head_http)
     app.router.add_options("/lm_head", handle_options)
     app.router.add_get("/ws", handle_ws)
+
+    # Wave-4 desktop-peer: peer signaling surface (see wire-frames.md §1.10).
+    app.router.add_post("/peers/announce", handle_peers_announce)
+    app.router.add_options("/peers/announce", handle_options)
+    app.router.add_get("/peers/list", handle_peers_list)
+    app.router.add_options("/peers/list", handle_options)
+    app.router.add_get("/peers/socket/{peer_id}", handle_peers_socket)
+    app.router.add_post("/peers/signal/{peer_id}", handle_peers_signal_post)
+    app.router.add_get("/peers/signal/{peer_id}", handle_peers_signal_get)
+    app.router.add_options("/peers/signal/{peer_id}", handle_options)
 
     return app
 

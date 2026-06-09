@@ -66,9 +66,17 @@ def test_load_config_partial_region_warns_but_continues() -> None:
     assert cfg.regions[0].label == "us-west2"
 
 
-def test_load_config_no_regions_raises() -> None:
+def test_load_config_no_regions_wave4_returns_empty_regions() -> None:
+    """Wave-4 default (LEGACY_DISPATCH unset): empty env -> empty regions,
+    no SystemExit. The coordinator runs in signaling-only mode."""
+    cfg = load_config_from_env({})
+    assert cfg.regions == []
+
+
+def test_load_config_no_regions_legacy_dispatch_raises() -> None:
+    """Wave-3 backcompat: LEGACY_DISPATCH=1 + empty env -> SystemExit."""
     with pytest.raises(SystemExit):
-        load_config_from_env({})
+        load_config_from_env({"LEGACY_DISPATCH": "1"})
 
 
 def test_load_config_url_without_ids_is_skipped() -> None:

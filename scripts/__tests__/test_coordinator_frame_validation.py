@@ -28,6 +28,7 @@ from scripts.expert_coordinator import (
 
 def test_error_codes_is_closed_set() -> None:
     expected = {
+        # Wave-3:
         "expected_hello",
         "bad_json",
         "frame_too_large",
@@ -40,6 +41,11 @@ def test_error_codes_is_closed_set() -> None:
         "upstream_unavailable",
         "all_regions_failed",
         "internal_error",
+        # Wave-4 desktop-peer (wire-frames.md §1.9):
+        "dispatch_moved",
+        "peer_offline",
+        "unknown_peer",
+        "peer_id_collision",
     }
     assert ERROR_CODES == expected
 
