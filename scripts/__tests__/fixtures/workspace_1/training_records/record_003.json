@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "workspace_id": "00000000-0000-4000-8000-000000000001",
+  "tier": "community",
+  "tool_category": "api_calls",
+  "query": "how does a peer join the mesh?",
+  "context_nodes": [
+    {"source": "palace:stash-003", "text": "peer announces caps then opens /peers/socket and sends hello", "weight": 1.0}
+  ],
+  "positive_response": "A peer POSTs /peers/announce, opens WSS /peers/socket/<id>, sends a hello frame, and gets a ready reply.",
+  "negative_examples": [],
+  "provenance": {
+    "engine": "sift",
+    "captured_at": "2026-06-18T12:10:00Z",
+    "user_validated": true,
+    "contributor_signature": null
+  }
+}

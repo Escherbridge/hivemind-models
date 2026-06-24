@@ -1,0 +1,43 @@
+{
+  "palace": [
+    {
+      "id": "stash-001",
+      "name": "MoE routing",
+      "tags": ["moe_routing"],
+      "tier": "private",
+      "nodes": [
+        {
+          "id": "n1",
+          "text": "router uses layer-5 logits to pick top-k experts",
+          "source": "scripts/expert_coordinator.py:1500"
+        }
+      ]
+    },
+    {
+      "id": "stash-002",
+      "name": "wire format",
+      "tags": ["code_execution"],
+      "tier": "shared",
+      "nodes": [
+        {
+          "id": "n2",
+          "text": "binary frame header is <BHIIB: op, expert_id, n_tokens, hidden, dtype",
+          "source": "scripts/_wire.py:42"
+        }
+      ]
+    },
+    {
+      "id": "stash-003",
+      "name": "peer signaling",
+      "tags": ["api_calls"],
+      "tier": "community",
+      "nodes": [
+        {
+          "id": "n3",
+          "text": "peer announces caps then opens /peers/socket and sends hello",
+          "source": "scripts/expert_coordinator.py:1929"
+        }
+      ]
+    }
+  ]
+}

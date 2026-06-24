@@ -58,7 +58,12 @@ def test_load_head_lm_head_only(tmp_path: Path) -> None:
     hidden = torch.randn(2, HIDDEN, dtype=torch.float32)
     logits = head.forward(hidden)
     expected = hidden @ state["lm_head.weight"].to(torch.float32).T
-    assert torch.allclose(logits, expected, atol=1e-3, rtol=1e-3)
+    # HeadModule.forward keeps the lm_head weight in its source dtype (fp16
+    # here) on purpose, to halve resident memory on the real Granite head, so
+    # it returns fp16 logits. Upcast for comparison and use an fp16-scale
+    # tolerance: at these logit magnitudes fp16 rounding is ~1e-2, not 1e-3.
+    assert logits.dtype == torch.float16
+    assert torch.allclose(logits.float(), expected, atol=5e-2, rtol=1e-2)
 
 
 def test_load_head_with_layernorm(tmp_path: Path) -> None:
@@ -74,7 +79,9 @@ def test_load_head_with_layernorm(tmp_path: Path) -> None:
     normed = hidden * torch.rsqrt(var + eps)
     normed = normed * state["model.final_layernorm.weight"].to(torch.float32)
     expected = normed @ state["lm_head.weight"].to(torch.float32).T
-    assert torch.allclose(logits, expected, atol=1e-3, rtol=1e-3)
+    # See note in test_load_head_lm_head_only: forward returns fp16, so
+    # compare upcast with an fp16-scale tolerance.
+    assert torch.allclose(logits.float(), expected, atol=5e-2, rtol=1e-2)
 
 
 def test_load_head_missing_lm_head_raises(tmp_path: Path) -> None:

@@ -96,14 +96,27 @@ def capture_synthetic(seed: int = DEFAULT_SEED) -> dict:
     final_ln_w = torch.full((HIDDEN,), 0.7, dtype=torch.float16)
     hidden = torch.randn(1, HIDDEN, generator=g, dtype=torch.float32).to(torch.float16)
 
-    # Reproduce the coordinator's exact forward math: RMSNorm then matmul.
-    x = hidden.to(torch.float32)
-    eps = 1e-5
-    var = x.pow(2).mean(dim=-1, keepdim=True)
-    normed = x * torch.rsqrt(var + eps)
-    normed = normed * final_ln_w.to(torch.float32)
-    logits = normed @ lm_head_w.to(torch.float32).T
-    top5_ids, top5_vals = _topk_from_logits(logits)
+    # Capture logits through the REAL HeadModule so the fixture reflects exactly
+    # what the runtime produces. HeadModule.forward keeps the lm_head weight in
+    # fp16 (a deliberate memory optimization) and does the matmul in fp16, so a
+    # reference computed in fp32 here would drift ~1e-2 from the runtime at
+    # these logit magnitudes and make the 1e-3 correctness tolerance unusable.
+    # Computing via HeadModule keeps that tolerance a meaningful regression
+    # guard. See HeadModule.forward in expert_coordinator.py.
+    try:
+        from scripts.expert_coordinator import HeadModule
+    except ModuleNotFoundError:
+        # Allow running this file as a standalone script (cwd-relative import)
+        # in addition to the package import pytest's conftest enables.
+        import sys
+        from pathlib import Path as _Path
+
+        sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+        from scripts.expert_coordinator import HeadModule
+
+    head = HeadModule(lm_head_w, final_layernorm_weight=final_ln_w, layernorm_eps=1e-5)
+    logits = head.forward(hidden)
+    top5_ids, top5_vals = _topk_from_logits(logits.float())
 
     return {
         "hidden": hidden.numpy(),

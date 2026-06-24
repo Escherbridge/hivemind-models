@@ -46,6 +46,7 @@ credentials.json
 output/*/shard_*
 output/*/tokenizer/
 output/*/manifest.json
+output/*/**/topology.json
 
 # Logs
 *.log

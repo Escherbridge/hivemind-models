@@ -37,3 +37,20 @@ def coord_free_port() -> int:
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+@pytest.fixture
+def fixture_workspace_dir(tmp_path: Path) -> Path:
+    """Copy the synthetic ``workspace_1`` fixture into a temp dir.
+
+    Spans all three sovereignty tiers (private/shared/community) so substrate
+    tests can exercise tier enforcement on real data. Layout documented in
+    ``fixtures/workspace_1/README.md``.
+    """
+
+    import shutil
+
+    src = Path(__file__).parent / "fixtures" / "workspace_1"
+    dst = tmp_path / "workspace"
+    shutil.copytree(src, dst)
+    return dst
