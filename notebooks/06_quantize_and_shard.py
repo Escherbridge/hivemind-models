@@ -1,3 +1,10 @@
+# NOTE (2026-06-27): This notebook loads checkpoints from notebooks 04/05
+# (MoE upcycling, expert fine-tuning). Those notebooks have been archived to
+# hivemind-archive/domain-moe-sdk/ — the domain-MoE pipeline (one expert per tool
+# category) is empirically broken and replaced by Branch-Train-Merge (Axis 3).
+# The quantisation and sharding logic here (src.convert.bitllm, safetensors sharding)
+# remains live and is used by the branch GGUF path. See hivemind-archive/README.md.
+
 # %% [markdown]
 # # HiveMind Pipeline: BitNet Quantization & Sharding
 #

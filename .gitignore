@@ -58,3 +58,7 @@ logs/
 
 # Modal
 .modal/
+
+# Cross-repo coordination scratch (briefs authored from sibling repos; reference
+# material for the coding agent, intentionally not committed)
+SCRT-EVOLVE-INTEGRATION.md

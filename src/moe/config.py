@@ -7,7 +7,7 @@ gating, and training pipeline.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import yaml
@@ -17,6 +17,12 @@ import yaml
 class MoEConfig:
     """
     Configuration for converting a dense model into a Mixture-of-Experts model.
+
+    These are generic MoE compute knobs (upcycling, gating, load-balancing).
+    The former ``tool_categories`` field \u2014 which mapped category names to expert
+    indices \u2014 has been removed; that domain-specialisation premise is broken
+    (learned routers route by token syntax, not domain) and is archived at
+    hivemind-archive/domain-moe-sdk/.
 
     Attributes:
         num_experts: Number of expert copies per MoE layer.
@@ -30,9 +36,6 @@ class MoEConfig:
         gating_type: Gating algorithm \u2014 ``"top_k"`` (tokens choose experts)
                      or ``"expert_choice"`` (experts choose tokens).
         base_model_id: HuggingFace model identifier for the dense base.
-        tool_categories: Maps human-readable category names to expert
-                         indices so that each expert can be associated with a
-                         tool-calling specialisation.
         noise_std: Standard deviation for Gaussian noise injected into
                    duplicated expert weights to break symmetry.
         load_balance_weight: Coefficient for the auxiliary load-balancing loss.
@@ -44,7 +47,6 @@ class MoEConfig:
     expert_capacity_factor: float = 1.25
     gating_type: Literal["top_k", "expert_choice"] = "top_k"
     base_model_id: str = ""
-    tool_categories: dict[str, int] = field(default_factory=dict)
     noise_std: float = 0.01
     load_balance_weight: float = 0.01
 
@@ -60,7 +62,6 @@ class MoEConfig:
             "expert_capacity_factor": self.expert_capacity_factor,
             "gating_type": self.gating_type,
             "base_model_id": self.base_model_id,
-            "tool_categories": self.tool_categories,
             "noise_std": self.noise_std,
             "load_balance_weight": self.load_balance_weight,
         }
@@ -80,7 +81,6 @@ class MoEConfig:
             expert_capacity_factor=float(data.get("expert_capacity_factor", 1.25)),
             gating_type=data.get("gating_type", "top_k"),
             base_model_id=data.get("base_model_id", ""),
-            tool_categories=data.get("tool_categories", {}),
             noise_std=float(data.get("noise_std", 0.01)),
             load_balance_weight=float(data.get("load_balance_weight", 0.01)),
         )

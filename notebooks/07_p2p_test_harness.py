@@ -1,3 +1,10 @@
+# NOTE (2026-06-27): This notebook loads shards produced by notebooks 04–06
+# (MoE upcycling, expert fine-tuning, quantise+shard). Notebooks 04/05 have been
+# archived to hivemind-archive/domain-moe-sdk/ — domain-MoE (one expert per tool
+# category) is empirically broken. The P2P layer-shard dispatch tested here
+# (Axis 1) is unaffected; expert-pool routing below is now a simulation artefact.
+# See hivemind-archive/README.md for full rationale.
+
 # %% [markdown]
 # # HiveMind Pipeline: P2P Inference Test Harness
 #

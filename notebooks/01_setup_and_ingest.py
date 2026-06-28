@@ -1,3 +1,10 @@
+# NOTE (2026-06-27): Notebooks 02–05 (tool-category definition, dataset generation,
+# MoE upcycling, expert fine-tuning) have been archived to
+# hivemind-archive/domain-moe-sdk/. The domain-MoE premise — one expert = one tool
+# category — is empirically broken (learned routers route by token syntax, not domain).
+# Domain specialisation is now handled by Branch-Train-Merge (Axis 3).
+# See hivemind-archive/README.md for full rationale.
+
 # %% [markdown]
 # # HiveMind Pipeline: Setup & Model Ingestion
 #
