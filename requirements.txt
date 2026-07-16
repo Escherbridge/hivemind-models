@@ -5,6 +5,10 @@ safetensors>=0.4.0
 accelerate>=0.24.0
 bitsandbytes>=0.41.0
 
+# Coordinator / wire (runtime deps of scripts/, exercised by scripts/__tests__/)
+aiohttp>=3.9.0
+websockets>=12.0
+
 # Cloud storage
 boto3>=1.28.0
 
