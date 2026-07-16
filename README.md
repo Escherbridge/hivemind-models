@@ -12,7 +12,6 @@ This package converts HuggingFace models into sharded safetensors files optimize
 - **Quantization**: INT4/INT8 quantization for reduced model size
 - **CDN Upload**: Upload shards to Cloudflare R2 for fast global distribution
 - **Validation**: Verify shard integrity and tensor shapes
-- **Modal Deploy**: GPU-accelerated conversion on Modal cloud
 
 ## Installation
 
@@ -42,28 +41,13 @@ python scripts/convert_model.py --config configs/tinyllama-1b.yaml
 python -m src.cli.main convert --config configs/tinyllama-1b.yaml --dry-run
 ```
 
-### 2. Convert a Model (Modal GPU)
-
-For faster conversion of large models, use Modal's GPU infrastructure:
-
-```bash
-# Install Modal
-pip install modal
-
-# Authenticate
-modal token new
-
-# Run conversion on GPU
-modal run modal_deploy.py --model-id TinyLlama/TinyLlama-1.1B-Chat-v1.0
-```
-
-### 3. Validate Shards
+### 2. Validate Shards
 
 ```bash
 python -m src.cli.main validate ./output/tinyllama-1b-q4
 ```
 
-### 4. Upload to CDN
+### 3. Upload to CDN
 
 ```bash
 # Set up environment variables (see .env.example)
