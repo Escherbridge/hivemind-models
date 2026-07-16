@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "workspace_id": "00000000-0000-4000-8000-000000000001",
+  "tier": "shared",
+  "tool_category": "code_execution",
+  "query": "what is the binary wire header layout?",
+  "context_nodes": [
+    {"source": "palace:stash-002", "text": "header is <BHIIB: op, expert_id, n_tokens, hidden, dtype", "weight": 1.0},
+    {"source": "scripts/_wire.py:42", "text": "_HEADER = struct.Struct(\"<BHIIB\")", "weight": 0.8}
+  ],
+  "positive_response": "A 12-byte little-endian header: op:u8, expert_id:u16, n_tokens:u32, hidden:u32, dtype:u8, then the payload.",
+  "negative_examples": ["The header is a JSON object."],
+  "provenance": {
+    "engine": "combined",
+    "captured_at": "2026-06-18T12:05:00Z",
+    "user_validated": true,
+    "contributor_signature": null
+  }
+}

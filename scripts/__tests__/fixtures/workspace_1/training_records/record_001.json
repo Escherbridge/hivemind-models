@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "workspace_id": "00000000-0000-4000-8000-000000000001",
+  "tier": "private",
+  "tool_category": "moe_routing",
+  "query": "how does the MoE router pick experts?",
+  "context_nodes": [
+    {"source": "palace:stash-001", "text": "router uses layer-5 logits", "weight": 1.0}
+  ],
+  "positive_response": "Top-k experts are selected by argmax over router logits at layer 5.",
+  "negative_examples": [],
+  "provenance": {
+    "engine": "mpg",
+    "captured_at": "2026-06-18T12:00:00Z",
+    "user_validated": false,
+    "contributor_signature": null
+  }
+}

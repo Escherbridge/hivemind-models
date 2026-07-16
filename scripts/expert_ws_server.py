@@ -5,7 +5,7 @@ A single server process can hold N experts (one nn-module each); the
 incoming request frame tells it which expert to run. Co-locating multiple
 experts saves the per-process Python overhead at the cost of less parallel
 compute inside that one process (Python GIL means matmuls run effectively
-serially per server). The dispatcher (moe_coordinator.py) still talks to
+serially per server). The dispatcher (expert_coordinator.py) still talks to
 each expert independently via a shared client-side connection.
 
 Wire protocol (binary frames, little-endian)

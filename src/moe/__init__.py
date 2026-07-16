@@ -1,18 +1,15 @@
 """
-MoE module - Mixture-of-Experts upcycling, gating, training, and pipeline.
+MoE module - Mixture-of-Experts upcycling and gating primitives.
+
+Domain-specialisation classes (ExpertTrainer, MoEPipeline, SDK Expert/Pipeline)
+have been archived to hivemind-archive/domain-moe-sdk/ — see that repo's README.md
+for rationale (broken domain-MoE premise; replaced by Branch-Train-Merge, Axis 3).
 """
 
 from src.moe.config import MoEConfig
 from src.moe.gating import TopKGating, ExpertChoiceGating
 from src.moe.upcycle import MoEUpcycler, MoELayer
-from src.moe.expert_trainer import (
-    ExpertTrainer,
-    ExpertTrainingConfig,
-    LoRALinear,
-    ToolCallingDataset,
-)
 from src.moe.pipeline_config import PipelineConfig
-from src.moe.pipeline import MoEPipeline, PipelineStage, run_pipeline_from_yaml
 
 __all__ = [
     # Config
@@ -23,14 +20,6 @@ __all__ = [
     # Upcycling
     "MoEUpcycler",
     "MoELayer",
-    # Training
-    "ExpertTrainer",
-    "ExpertTrainingConfig",
-    "LoRALinear",
-    "ToolCallingDataset",
-    # Pipeline
+    # Pipeline config (generic, no domain claim)
     "PipelineConfig",
-    "MoEPipeline",
-    "PipelineStage",
-    "run_pipeline_from_yaml",
 ]

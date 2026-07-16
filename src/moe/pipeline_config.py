@@ -80,7 +80,28 @@ from typing import Any, Literal
 import yaml
 
 from src.moe.config import MoEConfig
-from src.moe.expert_trainer import ExpertTrainingConfig
+
+# TrainingConfig was removed with expert_trainer.py (archived to
+# hivemind-archive/domain-moe-sdk/ — domain-MoE premise broken).
+# TrainingConfig below retains the same hyperparameter fields for generic
+# fine-tuning use; the per-expert domain mapping is gone.
+
+
+@dataclass
+class TrainingConfig:
+    """Generic fine-tuning hyperparameters (no per-expert domain mapping)."""
+
+    learning_rate: float = 2e-4
+    num_steps: int = 500
+    batch_size: int = 4
+    max_seq_len: int = 512
+    lora_rank: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    warmup_steps: int = 50
+    weight_decay: float = 0.01
+    fp16: bool = True
+    per_expert: dict = field(default_factory=dict)  # kept for YAML compat; unused by routing
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +211,7 @@ class PipelineConfig:
     ingest: IngestConfig = field(default_factory=IngestConfig)
     moe: MoEConfig = field(default_factory=MoEConfig)
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
-    training: ExpertTrainingConfig = field(default_factory=ExpertTrainingConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
     quantize: QuantizeConfig = field(default_factory=QuantizeConfig)
     shard: ShardExportConfig = field(default_factory=ShardExportConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
@@ -215,11 +236,11 @@ class PipelineConfig:
             per_expert[int(k)] = v
         training_raw_clean = {k: v for k, v in training_raw.items() if k != "per_expert"}
 
-        training_cfg = ExpertTrainingConfig(
+        training_cfg = TrainingConfig(
             **{
                 k: v
                 for k, v in training_raw_clean.items()
-                if k in ExpertTrainingConfig.__dataclass_fields__
+                if k in TrainingConfig.__dataclass_fields__
             },
             per_expert=per_expert,
         )

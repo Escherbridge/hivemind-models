@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Expert Coordinator -- Browser Smoke Test</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif;
+           background: #0d1117; color: #e6edf3; padding: 2rem;
+           max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.5rem; }
+    p.disclaimer { color: #f0b429; font-size: 0.9rem; margin-top: 0; }
+    input[type=text] { width: 60ch; padding: 0.4rem 0.6rem;
+                       background: #161b22; color: inherit;
+                       border: 1px solid #30363d; border-radius: 4px; }
+    button { padding: 0.5rem 0.9rem; background: #238636; color: #fff;
+             border: 0; border-radius: 4px; cursor: pointer;
+             margin-right: 0.5rem; }
+    button:disabled { background: #444; cursor: not-allowed; }
+    pre { background: #161b22; padding: 1rem; border-radius: 6px;
+          border: 1px solid #30363d; max-height: 60vh; overflow: auto;
+          white-space: pre-wrap; word-wrap: break-word; }
+    .ok { color: #3fb950; }
+    .err { color: #f85149; }
+    .info { color: #58a6ff; }
+    .step { color: #f0b429; }
+  </style>
+</head>
+<body>
+
+<h1>Expert Coordinator &mdash; Browser Smoke Test</h1>
+<p class="disclaimer">
+  Phase 1 demo: only 5 of 40 layers run. Top-5 tokens are bytes-real but
+  not semantically meaningful.
+</p>
+
+<p>
+  Coordinator WSS URL:
+  <input id="url" type="text"
+         value="wss://expert-coordinator.up.railway.app/ws" />
+</p>
+
+<p>
+  <button id="hello-btn">1. hello / ready</button>
+  <button id="wait-btn" disabled>2. dispatch wait_all</button>
+  <button id="fok-btn"  disabled>3. dispatch first_of_k</button>
+  <button id="lm-btn"   disabled>4. lm_head</button>
+  <button id="close-btn" disabled>close</button>
+</p>
+
+<pre id="log"></pre>
+
+<script type="module">
+const HIDDEN = 1536;
+const logEl = document.getElementById("log");
+const urlEl = document.getElementById("url");
+
+let socket = null;
+let lmHeadReady = false;
+
+function logRaw(line, cls) {
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = line + "\n";
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function log(line)  { logRaw(line, ""); }
+function ok(line)   { logRaw("[ok]   " + line, "ok"); }
+function err(line)  { logRaw("[err]  " + line, "err"); }
+function info(line) { logRaw("[info] " + line, "info"); }
+function step(line) { logRaw("\n=== " + line + " ===", "step"); }
+
+/* base64 over a Uint8Array. Plain btoa fails for non-ASCII; we use FileReader
+   to avoid quadratic string concatenation on the ~24 KB hidden state path. */
+function bytesToB64(bytes) {
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(
+      null, bytes.subarray(i, i + CHUNK)
+    );
+  }
+  return btoa(bin);
+}
+
+function uuidv4() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    const v = c === "x" ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+function randomFp16Payload(nTokens) {
+  // Fp16: pack 16-bit floats into a Uint16Array view of a Uint8Array buffer.
+  // The browser's WebGPU pipeline produces real fp16; for the smoke test
+  // we synthesize a bytes-valid payload via a small fp32 -> fp16 helper.
+  const fp16 = new Uint16Array(nTokens * HIDDEN);
+  for (let i = 0; i < fp16.length; i++) {
+    fp16[i] = toF16(Math.random() * 0.1 - 0.05);
+  }
+  return new Uint8Array(fp16.buffer);
+}
+
+function toF16(v) {
+  // From the WHATWG spec algorithm.
+  const f32 = new Float32Array(1);
+  const u32 = new Uint32Array(f32.buffer);
+  f32[0] = v;
+  const x = u32[0];
+  const sign = (x >>> 31) & 0x1;
+  let exp = ((x >>> 23) & 0xff) - 127 + 15;
+  let mant = x & 0x7fffff;
+  if (exp <= 0) {
+    if (exp < -10) return sign << 15;
+    mant |= 0x800000;
+    const shift = 14 - exp;
+    return (sign << 15) | (mant >>> shift);
+  } else if (exp >= 31) {
+    return (sign << 15) | (0x1f << 10);
+  }
+  return (sign << 15) | (exp << 10) | (mant >>> 13);
+}
+
+function waitForMessage(ws) {
+  return new Promise((resolve, reject) => {
+    const onMsg = ev => {
+      ws.removeEventListener("message", onMsg);
+      ws.removeEventListener("close", onClose);
+      resolve(ev.data);
+    };
+    const onClose = ev => {
+      ws.removeEventListener("message", onMsg);
+      ws.removeEventListener("close", onClose);
+      reject(new Error("ws closed code=" + ev.code));
+    };
+    ws.addEventListener("message", onMsg);
+    ws.addEventListener("close", onClose);
+  });
+}
+
+document.getElementById("hello-btn").onclick = async () => {
+  step("hello / ready");
+  if (socket) { try { socket.close(); } catch {} }
+  socket = new WebSocket(urlEl.value);
+  socket.binaryType = "arraybuffer";
+  socket.onerror = ev => err("ws error: " + ev);
+  socket.onclose = ev =>
+    info(`ws closed code=${ev.code} reason=${ev.reason || "(none)"}`);
+  await new Promise((res, rej) => {
+    socket.onopen = res;
+    socket.onerror = rej;
+  });
+  ok("ws open");
+  socket.send(JSON.stringify({
+    type: "hello", region: "browser-smoke-" + Math.random().toString(36).slice(2, 6),
+    protocol_version: 1,
+  }));
+  const reply = JSON.parse(await waitForMessage(socket));
+  log(JSON.stringify(reply, null, 2));
+  if (reply.type !== "ready") {
+    err("expected ready, got " + reply.type);
+    return;
+  }
+  lmHeadReady = !!reply.lm_head_ready;
+  ok(`ready  n_experts=${reply.n_experts}  regions=${JSON.stringify(reply.regions)}  ` +
+     `lm_head_ready=${lmHeadReady}`);
+  document.getElementById("wait-btn").disabled = false;
+  document.getElementById("fok-btn").disabled = false;
+  document.getElementById("lm-btn").disabled = !lmHeadReady;
+  document.getElementById("close-btn").disabled = false;
+};
+
+async function dispatchOnce(mode) {
+  step("dispatch " + mode);
+  const expertIds = [3, 12, 18, 27, 40, 55];
+  const calls = expertIds.map(eid => {
+    const payload = randomFp16Payload(8);
+    return {
+      expert_id: eid,
+      n_tokens: 8,
+      hidden: HIDDEN,
+      dtype: 1,
+      payload_b64: bytesToB64(payload),
+    };
+  });
+  const requestId = uuidv4();
+  const t0 = performance.now();
+  socket.send(JSON.stringify({
+    type: "dispatch",
+    request_id: requestId,
+    mode,
+    k: expertIds.length,
+    calls,
+  }));
+  const reply = JSON.parse(await waitForMessage(socket));
+  const elapsed = performance.now() - t0;
+  if (reply.type !== "result") {
+    err("expected result, got " + JSON.stringify(reply));
+    return;
+  }
+  ok(`mode=${mode}  total_ms=${reply.ms.toFixed(1)}  ` +
+     `client_ms=${elapsed.toFixed(1)}  n_results=${reply.results.length}`);
+  reply.results.forEach(r => {
+    if ("error" in r) {
+      err(`  expert ${r.expert_id} -> error ${r.error}: ${r.message || ""}`);
+    } else {
+      log(`  expert ${r.expert_id}  region=${r.region}  ms=${r.ms.toFixed(1)}`);
+    }
+  });
+}
+
+document.getElementById("wait-btn").onclick = () => dispatchOnce("wait_all");
+document.getElementById("fok-btn").onclick  = () => dispatchOnce("first_of_k");
+
+document.getElementById("lm-btn").onclick = async () => {
+  step("lm_head");
+  const payload = randomFp16Payload(1);
+  const requestId = uuidv4();
+  socket.send(JSON.stringify({
+    type: "lm_head",
+    request_id: requestId,
+    hidden_b64: bytesToB64(payload),
+    shape: [1, HIDDEN],
+    dtype: "fp16",
+  }));
+  const reply = JSON.parse(await waitForMessage(socket));
+  if (reply.type !== "lm_head_result") {
+    err("expected lm_head_result, got " + JSON.stringify(reply));
+    return;
+  }
+  ok(`lm_head ms=${reply.ms.toFixed(1)}`);
+  reply.top_5.forEach((t, i) => {
+    log(`  ${i + 1}. id=${t.token_id}  logit=${t.logit.toFixed(3)}  ` +
+        `str=${JSON.stringify(t.token_str)}`);
+  });
+};
+
+document.getElementById("close-btn").onclick = () => {
+  if (socket) socket.close(1000, "smoke test done");
+};
+</script>
+
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile.coordinator"
+  },
+  "deploy": {
+    "startCommand": "python scripts/expert_coordinator.py",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 240,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5,
+    "sleepApplication": true,
+    "region": "us-east4"
+  }
+}

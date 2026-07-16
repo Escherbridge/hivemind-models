@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "entries": [
+    {
+      "id": "sift-001",
+      "tier": "private",
+      "tool_category": "moe_routing",
+      "source": "sample_files/note1.md",
+      "text": "MoE coordinator selects experts by argmax over router logits at layer 5",
+      "intent": "how does the MoE router pick experts?"
+    },
+    {
+      "id": "sift-002",
+      "tier": "shared",
+      "tool_category": "code_execution",
+      "source": "sample_files/note2.md",
+      "text": "12-byte little-endian header <BHIIB then payload",
+      "intent": "what is the binary wire header layout?"
+    }
+  ]
+}

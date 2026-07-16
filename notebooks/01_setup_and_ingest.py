@@ -1,9 +1,18 @@
+# NOTE (2026-07-10): Notebooks 02–07 (tool-category definition, dataset generation,
+# MoE upcycling, expert fine-tuning, quantize+shard, P2P test harness) have been
+# archived to hivemind-archive/domain-moe-sdk/. The domain-MoE premise — one expert =
+# one tool category — is empirically broken (learned routers route by token syntax,
+# not domain). Domain specialisation is now handled by Branch-Train-Merge (Axis 3).
+# This notebook's model-ingestion mechanics remain live and reusable for branch
+# training prep. See hivemind-archive/README.md for full rationale.
+
 # %% [markdown]
 # # HiveMind Pipeline: Setup & Model Ingestion
 #
 # [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Escherbridge/laxame-hivemind/blob/main/hivemind-models/notebooks/01_setup_and_ingest.py)
 #
-# This notebook handles the first stage of the HiveMind BitNet MoE pipeline:
+# This notebook handles model ingestion (load, inspect, checkpoint) — the first
+# stage before branch training (Axis 3) or layer-sharding (Axis 1):
 # 1. Install all required dependencies
 # 2. Clone / mount the hivemind-models repository
 # 3. Load a model from HuggingFace (TinyLlama 1.1B for testing, BitNet 3B for production)
@@ -267,8 +276,8 @@ print(tabulate(
 ))
 
 # %%
-# Identify MLP blocks for MoE conversion
-print("\nMLP Block Structure (candidates for MoE conversion):")
+# Identify MLP blocks (relevant if compute-sharding this model)
+print("\nMLP Block Structure (candidates for compute-sharding):")
 print("=" * 60)
 
 sample_layer = 0
@@ -358,10 +367,12 @@ print(f"\nTotal checkpoint size: {total_size / 1e9:.2f} GB")
 # 1. Installed all dependencies for the HiveMind pipeline
 # 2. Loaded the **{model_id}** model from HuggingFace
 # 3. Inspected the architecture: **{num_layers}** transformer layers, **{total_params:,}** parameters
-# 4. Identified MLP blocks for MoE conversion
+# 4. Identified MLP blocks (candidates for compute-sharding, if that path is used)
 # 5. Saved the checkpoint to `{checkpoint_path}`
 #
-# **Next step**: Run `02_define_tool_categories.py` to define the 8 tool categories.
+# **Next step**: use this checkpoint for branch training (scrt-evolve) or
+# layer-sharding (`src/convert/`, `src/architectures/`) — see hivemind-archive/README.md
+# for the current pipeline map.
 
 # %%
 print("\n" + "=" * 60)
