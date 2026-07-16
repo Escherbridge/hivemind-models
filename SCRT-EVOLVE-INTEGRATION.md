@@ -229,3 +229,14 @@ grouping, daemon = sole VRAM authority, rewards deferred to v2.
 - Linker de-risk + results: `scrt-evolve/bench/seam_distill/{seam_distill_tinyllama.py, RESULTS.md}`
 - Canonical papers: **BTM 2208.03306** · **c-BTM 2303.14177** · Mixtral 2401.04088 ·
   MOHAWK 2408.10189 · Mamba-in-Llama 2408.15237 · Drop-Upcycling 2502.19261
+
+---
+
+## 8. Feature-request queue (hivemind → evolve)
+
+This brief flows evolve → hivemind. The reverse channel — engine capabilities the
+hivemind desktop needs FROM scrt-evolve (dataset store/provenance API, human-curation
+verdicts, compute-authority hooks, runtime corpus registry) — lives in
+`conductor/tracks/_shared/evolve-cli-feature-requests.md`. It is the request queue;
+the evolve side responds by editing that file in place with status markers, the same
+way §6 resolutions were recorded here. First batch R1–R4 REQUESTED 2026-07-16.
