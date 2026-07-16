@@ -237,6 +237,10 @@ class TestHFMatches:
         ref_real_layer5_weights: dict[str, torch.Tensor],
     ) -> None:
         """Bit-equivalent to the HF decoder layer (max abs diff < 1e-5)."""
+        pytest.importorskip(
+            "transformers.masking_utils",
+            reason="HF-parity reference tests need transformers>=4.52",
+        )
         from transformers import AutoConfig
         from transformers.masking_utils import create_causal_mask
         from transformers.models.granitemoehybrid.modeling_granitemoehybrid import (
@@ -284,6 +288,10 @@ class TestHFMatches:
         """The router top-6 expert ids agree exactly with HF (softmax tie-break
         may differ for tied logits, so we check the set of top-6 is in the
         reference's top-K rather than asserting identical ordering)."""
+        pytest.importorskip(
+            "transformers.masking_utils",
+            reason="HF-parity reference tests need transformers>=4.52",
+        )
         from transformers import AutoConfig
         from transformers.masking_utils import create_causal_mask
         from transformers.models.granitemoehybrid.modeling_granitemoehybrid import (
