@@ -239,4 +239,73 @@ hivemind desktop needs FROM scrt-evolve (dataset store/provenance API, human-cur
 verdicts, compute-authority hooks, runtime corpus registry) — lives in
 `conductor/tracks/_shared/evolve-cli-feature-requests.md`. It is the request queue;
 the evolve side responds by editing that file in place with status markers, the same
-way §6 resolutions were recorded here. First batch R1–R4 REQUESTED 2026-07-16.
+way §6 resolutions were recorded here. First batch R1–R4 REQUESTED 2026-07-16,
+**ACCEPTED + SHIPPED 2026-07-18** (evolve tracks 51–55) — see §9.
+
+## 9. Dataset / curation / compute surfaces evolve now hands over (R1–R4 SHIPPED 2026-07-18)
+
+The R1–R4 batch is built **crate-API-first** (ADR D8 — the desktop links `scrt_evolve`
+in-process; the CLI verbs below are thin `--json` wrappers over the same crate structs,
+one schema two transports). Evolve tracks 51–55; full acceptance status in
+`conductor/tracks/_shared/evolve-cli-feature-requests.md` §6.
+
+**Foundation (track 51).** Every `GenExample` carries a durable, opaque, time-sortable
+`record_id` (UUIDv7 writer policy) in a nested `record` object (`{v,id,parent,created_unix}`);
+legacy rows without it stay byte-stable and a `record.v` newer than supported is refused, not
+guessed. `Tier` is now three-valued `private | shared | community` with explicit
+restrictiveness `private > shared > community` (most-restrictive wins on multi-source records;
+absent ⇒ private). Record-level `parent_record_id` lineage is **distinct** from branch
+weight-space lineage.
+
+**R1 — Dataset store (track 52).** An embedded **SQLite** store (`<work_dir>/dataset.sqlite3`)
+is the record authority; `dataset.jsonl` is now a *derived* export of alive records.
+Crate: `DatasetStore::open_or_import` (idempotent, resumable legacy import), `list`/`search`
+(keyset-paginated `Page<RecordRow>`; FTS5 with an escaped-LIKE fallback), `get`, `history`,
+`insert`/`insert_many`, `edit` (append-only → child + parent superseded), `drop_record`
+(tombstone), `regen` (re-generate from source span → new lineage-linked record),
+`get_events(after_seq, limit)` (**poll-cursor** change-feed: `Create|Edit|Drop|Verdict|Reclassify`,
+unknown kinds refused), `export_alive_jsonl`. CLI: `evolve dataset list|show|edit|drop|regen|export [--json]`
+with `--source --run --min-score --max-score --tier --verdict --superseded --include-dropped --search --cursor --limit`.
+
+**R2 — Curation verdicts (track 53).** A human channel `accept | reject | keep`
+(`evolve dataset verdict <record_id> …`) that **outranks** the machine judge: `reject`
+excludes from all training sampling incl. the default Fifo daemon path (regardless of judge
+score), `accept` pins + re-admits, `keep` protects from judge-driven pruning; GATE never
+trains on rejected records; regen of a rejected ancestor does not resurrect it (rejected-lineage
+walk). Verdicts persist (SQLite), appear in `evolve dataset show --json`, and emit a `Verdict`
+feed event. Crate: `curation::apply_verdict`/`effective_verdict`/`CurationView`.
+
+**R4 — Corpus source registry (track 54).** Runtime source CRUD on a running daemon
+(`evolve corpus add|remove|list|set-tier|set-path|enable|disable|export-seed [--json]`),
+persisted in the SQLite store: stable `source_id`, per-source `tier` that inherits into
+records (refold-at-insert + a tighten cascade that emits `Reclassify` feed events), tombstone
+on remove (provenance stays resolvable), re-point on move. **`ambient.toml` is the seed, the
+registry is the authority** (imported once, never silently rewritten; `export-seed` regenerates
+a file on demand). New sources are picked up at the next ambient pass — no restart.
+
+**R3 — Compute-authority hooks (track 55).** Exposure of the daemon's existing VRAM
+arbitration (not new arbitration). Crate: `compute::probe_state(work_dir, cfg) -> ComputeState`
+and `compute::grant_inputs(...)` so the desktop **never shells out** for the hot path;
+`ComputeState` reconciles per-consumer VRAM (training gear / local serve / each mesh slot)
+against physical, and carries both `headroom_gb` and the grant-sizing `grantable_gb`.
+A lockfile **slot ledger** — `SlotLedger::request_slot` (pure `decide_grant`, named deny
+reasons incl. `invalid-request`/`insufficient-headroom`/`mesh-cap-exceeded`/`not-idle`),
+`release`/`renew`/`request_yield`/`resize`/`confirm_resize`/`revoke`, lease-TTL crash-reap —
+plus a bounded **training-park** (crash-reaped) and a settable `ComputePolicy`
+(`mesh_max_gb`, `mesh_only_when_idle`, reservation override; `[compute]` TOML seeds,
+`compute-policy.json` is runtime authority). CLI: `evolve status --compute --json`,
+`evolve compute slots|events|request|release|renew|yield|confirm-resize|park|resume|policy`.
+The state/slot/event feeds are **poll-cursor**, same discipline as R1.
+
+**Deferred / known limitations (honest):** R3 **live-GPU validation** of the real VRAM numbers
+is deferred to the next live bench window (the API + slot logic ship with CPU-side tests, same
+policy as evolve tracks 26/46–50). The daemon's *retention-pass* machine judge now persists its
+**DROP verdicts** back to the store (latest-wins, under `retention-policy/v1`; U11 closed
+2026-07-18) so a curation consumer sees a retirement via `dataset show --json` + one `verdict`
+change-feed event — but only the LATEST judge overlay is stored, not a re-judge *timeline* (a
+per-record score history remains unbuilt). `ComputeState` now exposes the budget axis
+(`attributed_budget_gb`) and the measured axis (`physical.used_gb` + `unattributed_measured_gb`
+/ `overcommit_gb`) as SEPARATE, independently-reconciling readouts (U8 closed 2026-07-18) — never
+sum `consumers` against `used`. FTS5-vs-LIKE search results can still diverge on punctuation /
+mid-word substrings (whole-word and zero-token queries agree). These are recorded in the tracks
+52 & 55 `Known limitations` spec sections.
